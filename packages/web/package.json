@@ -1,0 +1,26 @@
+{
+  "name": "@nes-emulator/web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "sync:rom-catalog": "node ../../scripts/prepare-rom-catalog.mjs",
+    "predev": "npm run sync:rom-catalog",
+    "dev": "vite",
+    "prebuild": "npm run sync:rom-catalog",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@nes-emulator/player": "0.1.0",
+    "vue": "^3.5.13"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vite-plugin-top-level-await": "^1.5.0",
+    "vite-plugin-wasm": "^3.4.0",
+    "vue-tsc": "^2.2.0"
+  }
+}

@@ -1,12 +1,21 @@
 # Rust
-core/target/
+packages/app/src-tauri/target/
+packages/wasm-core/target/
 
 # Node
-web/node_modules/
-web/dist/
+node_modules/
+packages/app/node_modules/
+packages/player/node_modules/
+packages/web/node_modules/
+packages/app/dist/
+packages/web/dist/
+packages/web/public/catalog.json
 
 # WASM 构建产物(由 scripts/build-wasm.sh 生成)
-web/src/wasm/
+packages/player/src/wasm/
+
+# TypeScript 增量构建产物
+**/tsconfig.tsbuildinfo
 
 # 杂项
 .DS_Store

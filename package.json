@@ -1,0 +1,14 @@
+{
+  "name": "nes-emulator-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev:web",
+    "dev:web": "npm run dev --workspace @nes-emulator/web",
+    "dev:app": "npm run dev --workspace @nes-emulator/app",
+    "build:web": "npm run build --workspace @nes-emulator/web",
+    "build:app": "npm run build --workspace @nes-emulator/app"
+  }
+}

@@ -1,1 +1,0 @@
-{"root":["./src/env.d.ts","./src/main.ts","./src/emulator/platform.ts","./src/emulator/runner.ts","./src/emulator/settings.ts","./src/wasm/nes_core.d.ts","./src/wasm/nes_core_bg.wasm.d.ts","./src/app.vue","./src/components/nesscreen.vue","./src/components/settingsmodal.vue"],"version":"5.9.3"}
