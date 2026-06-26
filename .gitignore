@@ -1,0 +1,15 @@
+# Rust
+core/target/
+
+# Node
+web/node_modules/
+web/dist/
+
+# WASM 构建产物(由 scripts/build-wasm.sh 生成)
+web/src/wasm/
+
+# 杂项
+.DS_Store
+*.log
+roms/
+roms_catalog.json
