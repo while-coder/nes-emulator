@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button, NesRunner } from '../emulator/runner'
 import {
   buildCodeToButton,
+  buildPadToButton,
+  isPadSignalActive,
   isTurbo,
   settings,
   TURBO_A,
@@ -87,6 +89,39 @@ watch(
   },
 )
 
+// ===== 实体手柄(Gamepad API,USB/蓝牙皆通过此接口)=====
+// 浏览器不派发手柄事件,需每帧轮询 navigator.getGamepads() 读取状态;
+// 与键盘一样按边沿(本帧 active 集合相对上一帧的增减)触发 press/release。
+const padToButton = computed(() => buildPadToButton(settings.padmap))
+let padRaf = 0
+let padActive = new Set<number>() // 上一帧手柄按下的按钮 id 集合
+
+function pollGamepads() {
+  padRaf = requestAnimationFrame(pollGamepads)
+  if (!runner) return
+  const pads = navigator.getGamepads ? navigator.getGamepads() : []
+  const map = padToButton.value
+  // 聚合所有已连接手柄:任一手柄触发某标识即视为该按钮按下。
+  const now = new Set<number>()
+  for (const pad of pads) {
+    if (!pad) continue
+    for (const sig in map) {
+      if (isPadSignalActive(pad, sig)) now.add(map[sig])
+    }
+  }
+  now.forEach((id) => {
+    if (padActive.has(id)) return // 仍按住,幂等
+    if (isTurbo(id)) turboStart(id)
+    else runner?.press(id as Button)
+  })
+  padActive.forEach((id) => {
+    if (now.has(id)) return
+    if (isTurbo(id)) turboEnd(id)
+    else runner?.release(id as Button)
+  })
+  padActive = now
+}
+
 // 触屏虚拟手柄方向键
 const PAD = [
   { key: 'up', label: '▲', btn: Button.Joypad1Up, cls: 'dpad-up' },
@@ -167,6 +202,7 @@ onMounted(() => {
   runner.setSpeed(settings.misc.speed)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  padRaf = requestAnimationFrame(pollGamepads)
   ro = new ResizeObserver(() => applyDisplaySize())
   if (wrapRef.value) ro.observe(wrapRef.value)
   applyDisplaySize()
@@ -175,6 +211,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
+  if (padRaf) cancelAnimationFrame(padRaf)
+  padRaf = 0
   if (turboTimer) clearInterval(turboTimer)
   turboTimer = 0
   ro?.disconnect()

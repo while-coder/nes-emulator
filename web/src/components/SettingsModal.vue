@@ -5,6 +5,8 @@ import {
   SPEED_OPTIONS,
   TURBO_HZ_OPTIONS,
   codeLabel,
+  detectPadSignal,
+  padLabel,
   resetKeymap,
   resetSettings,
   settings,
@@ -40,6 +42,7 @@ const TOUCH_MODES: { value: TouchPadMode; label: string }[] = [
 const capturing = ref<number | null>(null)
 
 function startCapture(btn: number) {
+  stopCapturePad()
   capturing.value = btn
 }
 
@@ -70,12 +73,63 @@ watch(capturing, (v) => {
   }
 })
 
+// ===== 手柄按键捕获:点击后轮询 Gamepad,捕获按下的第一个输入 =====
+const capturingPad = ref<number | null>(null)
+let padRaf = 0
+// 录入起始时的手柄基线快照,只识别相对基线“新发生”的输入,避免把已按住的键/扳机偏置当成输入。
+let padBaseline: Gamepad | null = null
+
+function startCapturePad(btn: number) {
+  capturing.value = null
+  capturingPad.value = btn
+  padBaseline = null
+  if (!padRaf) padRaf = requestAnimationFrame(pollCapturePad)
+}
+
+function stopCapturePad() {
+  capturingPad.value = null
+  padBaseline = null
+  if (padRaf) {
+    cancelAnimationFrame(padRaf)
+    padRaf = 0
+  }
+}
+
+function pollCapturePad() {
+  if (capturingPad.value === null) {
+    padRaf = 0
+    return
+  }
+  padRaf = requestAnimationFrame(pollCapturePad)
+  const pads = navigator.getGamepads ? navigator.getGamepads() : []
+  for (const pad of pads) {
+    if (!pad) continue
+    if (!padBaseline) padBaseline = pad // 以首个出现的手柄当帧状态为基线
+    const sig = detectPadSignal(pad, padBaseline)
+    if (sig) {
+      // 若该标识已绑到别的按钮,先解绑,避免冲突。
+      for (const [b, s] of Object.entries(settings.padmap)) {
+        if (s === sig && Number(b) !== capturingPad.value) settings.padmap[Number(b)] = ''
+      }
+      settings.padmap[capturingPad.value] = sig
+      stopCapturePad()
+      return
+    }
+  }
+}
+
 function onOverlayKey(e: KeyboardEvent) {
-  if (e.key === 'Escape' && capturing.value === null) close()
+  if (e.key !== 'Escape') return
+  if (capturingPad.value !== null) {
+    stopCapturePad() // 手柄录入中:Esc 取消录入,不关闭面板
+  } else if (capturing.value === null) {
+    close()
+  }
 }
 
 function close() {
   capturing.value = null
+  stopCapturePad()
   open.value = false
 }
 
@@ -88,6 +142,7 @@ const volumePct = computed({
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onCaptureKey, true)
+  stopCapturePad()
 })
 </script>
 
@@ -120,8 +175,14 @@ onBeforeUnmount(() => {
         <!-- 按键 -->
         <div v-if="tab === 'keys'" class="keys">
           <p class="tip">
-            点击右侧按键,然后按下想要绑定的键(Esc 取消)。连发 A/B 为按住自动连按。
+            点击键盘/手柄列,然后按下想绑定的键或手柄按钮(Esc 取消)。键盘与手柄可同时使用。
+            连发 A/B 为按住自动连按。
           </p>
+          <div class="key-head">
+            <span class="key-name"></span>
+            <span class="col-head">键盘</span>
+            <span class="col-head">手柄</span>
+          </div>
           <div v-for="item in BUTTON_LIST" :key="item.btn" class="key-row">
             <span class="key-name">{{ item.label }}</span>
             <button
@@ -129,6 +190,12 @@ onBeforeUnmount(() => {
               @click="startCapture(item.btn)"
             >
               {{ capturing === item.btn ? '按下任意键…' : codeLabel(settings.keymap[item.btn]) }}
+            </button>
+            <button
+              :class="['key-bind', { capturing: capturingPad === item.btn }]"
+              @click="startCapturePad(item.btn)"
+            >
+              {{ capturingPad === item.btn ? '按下手柄键…' : padLabel(settings.padmap[item.btn]) }}
             </button>
           </div>
           <button class="reset" @click="resetKeymap">恢复默认按键</button>
@@ -264,18 +331,30 @@ onBeforeUnmount(() => {
   color: #888;
   font-size: 12px;
 }
-.key-row,
 .row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 0;
 }
+/* 按键页:名称 | 键盘 | 手柄 三列网格,表头与各行对齐。 */
+.key-head,
+.key-row {
+  display: grid;
+  grid-template-columns: 1fr 110px 110px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+}
+.col-head {
+  color: #888;
+  font-size: 12px;
+  text-align: center;
+}
 .key-name {
   color: #ddd;
 }
 .key-bind {
-  min-width: 120px;
   border: 1px solid #4a4a4a;
   background: #333;
   color: #eee;
@@ -283,6 +362,7 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
+  text-align: center;
 }
 .key-bind.capturing {
   border-color: #c0392b;

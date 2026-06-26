@@ -16,6 +16,11 @@ export type TouchPadMode = 'auto' | 'always' | 'never'
 export interface Settings {
   /** 按钮 id -> 键盘 KeyboardEvent.code。id 含引擎 Button(0~7)与连发虚拟键。 */
   keymap: Record<number, string>
+  /**
+   * 按钮 id -> 手柄输入标识(与 keymap 并存,键盘/手柄可同时使用)。
+   * 标识格式:`b{n}` 为 buttons[n];`a{n}+` / `a{n}-` 为 axes[n] 正/负方向。
+   */
+  padmap: Record<number, string>
   display: {
     /** true=双线性平滑,false=像素化(默认)。 */
     smoothing: boolean
@@ -70,6 +75,9 @@ export const BUTTON_LIST: { btn: number; label: string }[] = [
 export const SPEED_OPTIONS = [0.5, 1, 2, 3]
 export const TURBO_HZ_OPTIONS = [8, 16, 24, 30]
 
+/** 摇杆轴触发阈值:绝对值超过此值才视为对应方向按下,避免静止漂移误触。 */
+export const GAMEPAD_AXIS_THRESHOLD = 0.5
+
 function defaultSettings(): Settings {
   return {
     keymap: {
@@ -83,6 +91,20 @@ function defaultSettings(): Settings {
       [Button.Select]: 'ShiftRight',
       [TURBO_A]: 'KeyA',
       [TURBO_B]: 'KeyS',
+    },
+    // 默认按标准手柄布局(W3C Standard Gamepad):方向用 D-pad(b12~b15),
+    // A/B 取 Nintendo 手感(A 在右=b1,B 在下=b0),连发绑到面键 X/Y。
+    padmap: {
+      [Button.Joypad1Up]: 'b12',
+      [Button.Joypad1Down]: 'b13',
+      [Button.Joypad1Left]: 'b14',
+      [Button.Joypad1Right]: 'b15',
+      [Button.Joypad1A]: 'b1',
+      [Button.Joypad1B]: 'b0',
+      [Button.Start]: 'b9',
+      [Button.Select]: 'b8',
+      [TURBO_A]: 'b3',
+      [TURBO_B]: 'b2',
     },
     display: {
       smoothing: false,
@@ -110,6 +132,7 @@ function merge(base: Settings, saved: unknown): Settings {
   const s = saved as Partial<Settings>
   return {
     keymap: { ...base.keymap, ...(s.keymap ?? {}) },
+    padmap: { ...base.padmap, ...(s.padmap ?? {}) },
     display: { ...base.display, ...(s.display ?? {}) },
     audio: { ...base.audio, ...(s.audio ?? {}) },
     misc: { ...base.misc, ...(s.misc ?? {}) },
@@ -145,9 +168,11 @@ export function resetSettings(): void {
   Object.assign(settings, defaultSettings())
 }
 
-/** 仅恢复按键映射为默认值。 */
+/** 仅恢复按键映射(键盘 + 手柄)为默认值。 */
 export function resetKeymap(): void {
-  settings.keymap = defaultSettings().keymap
+  const d = defaultSettings()
+  settings.keymap = d.keymap
+  settings.padmap = d.padmap
 }
 
 /** 由 keymap 反推 code -> 按钮 id 查找表,供运行时按键派发。 */
@@ -155,6 +180,15 @@ export function buildCodeToButton(map: Record<number, string>): Record<string, n
   const out: Record<string, number> = {}
   for (const [id, code] of Object.entries(map)) {
     if (code) out[code] = Number(id)
+  }
+  return out
+}
+
+/** 由 padmap 反推 手柄输入标识 -> 按钮 id 查找表,供运行时手柄派发。 */
+export function buildPadToButton(map: Record<number, string>): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [id, sig] of Object.entries(map)) {
+    if (sig) out[sig] = Number(id)
   }
   return out
 }
@@ -184,4 +218,73 @@ export function codeLabel(code: string | undefined): string {
     .replace(/^Digit/, '')
     .replace(/^Numpad/, 'Num ')
     .replace(/^Arrow/, '')
+}
+
+/** 标准手柄(Standard Gamepad)按钮序号的常见名,仅作显示用。 */
+const PAD_BUTTON_LABELS: Record<number, string> = {
+  0: 'A',
+  1: 'B',
+  2: 'X',
+  3: 'Y',
+  4: 'LB',
+  5: 'RB',
+  6: 'LT',
+  7: 'RT',
+  8: 'Select',
+  9: 'Start',
+  10: 'L3',
+  11: 'R3',
+  12: '↑',
+  13: '↓',
+  14: '←',
+  15: '→',
+  16: 'Home',
+}
+
+/** 把手柄输入标识显示成更友好的名字(如 b1 -> "B"、a0- -> "摇杆←")。 */
+export function padLabel(sig: string | undefined): string {
+  if (!sig) return '未绑定'
+  const b = /^b(\d+)$/.exec(sig)
+  if (b) {
+    const n = Number(b[1])
+    return PAD_BUTTON_LABELS[n] ?? `键${n}`
+  }
+  const a = /^a(\d+)([+-])$/.exec(sig)
+  if (a) return `摇杆${a[1]}${a[2] === '+' ? '+' : '−'}`
+  return sig
+}
+
+/** 判断某个手柄输入标识在给定 Gamepad 当前是否处于按下/触发状态。 */
+export function isPadSignalActive(pad: Gamepad, sig: string): boolean {
+  const b = /^b(\d+)$/.exec(sig)
+  if (b) {
+    const btn = pad.buttons[Number(b[1])]
+    return btn ? btn.pressed || btn.value > 0.5 : false
+  }
+  const a = /^a(\d+)([+-])$/.exec(sig)
+  if (a) {
+    const v = pad.axes[Number(a[1])]
+    if (v === undefined) return false
+    return a[2] === '+' ? v > GAMEPAD_AXIS_THRESHOLD : v < -GAMEPAD_AXIS_THRESHOLD
+  }
+  return false
+}
+
+/**
+ * 扫描一个 Gamepad,返回当前正被按下的第一个输入标识(用于设置界面录入)。
+ * 仅在该输入相对 baseline 发生变化时才识别,避免把扳机的静止偏置/已按住的键当成新输入。
+ */
+export function detectPadSignal(pad: Gamepad, baseline: Gamepad | null): string | null {
+  for (let i = 0; i < pad.buttons.length; i++) {
+    const pressed = pad.buttons[i]?.pressed || pad.buttons[i]?.value > 0.5
+    const was = baseline?.buttons[i]?.pressed || (baseline?.buttons[i]?.value ?? 0) > 0.5
+    if (pressed && !was) return `b${i}`
+  }
+  for (let i = 0; i < pad.axes.length; i++) {
+    const v = pad.axes[i]
+    const base = baseline?.axes[i] ?? 0
+    if (v > GAMEPAD_AXIS_THRESHOLD && base <= GAMEPAD_AXIS_THRESHOLD) return `a${i}+`
+    if (v < -GAMEPAD_AXIS_THRESHOLD && base >= -GAMEPAD_AXIS_THRESHOLD) return `a${i}-`
+  }
+  return null
 }
