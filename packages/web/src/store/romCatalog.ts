@@ -19,8 +19,7 @@ export type RomCatalog = {
   games: RomEntry[]
 }
 
-const GITEE_RAW_PREFIX = 'https://gitee.com/qingfeng346/nes-roms/raw/master/'
-const DEV_ROM_PROXY_PREFIX = '/__nes_roms__/'
+const GITHUB_RAW_PREFIX = 'https://raw.githubusercontent.com/while-coder/nes-roms/main/'
 const configuredCatalogUrl = import.meta.env.VITE_ROM_CATALOG_URL?.trim()
 const configuredDownloadBaseUrl = import.meta.env.VITE_ROM_DOWNLOAD_BASE_URL?.trim()
 
@@ -115,15 +114,12 @@ function normalizeDownloadUrl(url: string): string {
   if (configuredDownloadBaseUrl) {
     return joinUrlPath(configuredDownloadBaseUrl, romPathFromDownloadUrl(url))
   }
-  if (import.meta.env.DEV && url.startsWith(GITEE_RAW_PREFIX)) {
-    return joinUrlPath(DEV_ROM_PROXY_PREFIX, url.slice(GITEE_RAW_PREFIX.length))
-  }
   return url
 }
 
 function romPathFromDownloadUrl(url: string): string {
-  if (url.startsWith(GITEE_RAW_PREFIX)) {
-    return url.slice(GITEE_RAW_PREFIX.length)
+  if (url.startsWith(GITHUB_RAW_PREFIX)) {
+    return url.slice(GITHUB_RAW_PREFIX.length)
   }
   try {
     return new URL(url).pathname.replace(/^\/+/, '')

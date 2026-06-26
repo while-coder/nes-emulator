@@ -8,13 +8,6 @@ export default defineConfig({
   server: {
     port: 5180,
     strictPort: true,
-    proxy: {
-      '/__nes_roms__/': {
-        target: 'https://gitee.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/__nes_roms__\//, '/qingfeng346/nes-roms/raw/master/'),
-      },
-    },
   },
   build: {
     target: 'esnext',

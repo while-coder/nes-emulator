@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(scriptDir, '..')
-const defaultCatalogUrl = 'https://gitee.com/qingfeng346/nes-roms/raw/master/catalog.json'
+const githubRawPrefix = 'https://raw.githubusercontent.com/while-coder/nes-roms/main/'
+const defaultCatalogUrl = `${githubRawPrefix}catalog.json`
 const defaultLocalCatalogPath = process.platform === 'win32' ? 'E:\\nes-roms\\catalog.json' : ''
 const fallbackLocalCatalogPath = path.resolve(rootDir, '..', 'nes-roms', 'catalog.json')
 const outputPath = path.resolve(rootDir, 'packages', 'web', 'public', 'catalog.json')
@@ -58,9 +59,8 @@ function prepareCatalog(catalog) {
 }
 
 function romPathFromDownloadUrl(url) {
-  const rawPrefix = 'https://gitee.com/qingfeng346/nes-roms/raw/master/'
-  if (typeof url === 'string' && url.startsWith(rawPrefix)) {
-    return url.slice(rawPrefix.length)
+  if (typeof url === 'string' && url.startsWith(githubRawPrefix)) {
+    return url.slice(githubRawPrefix.length)
   }
   try {
     return new URL(url).pathname.replace(/^\/+/, '')

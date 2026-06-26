@@ -13,7 +13,6 @@ export type DownloadOptions = {
 const ALLOWED_DOWNLOAD_HOSTS = new Set([
   'raw.githubusercontent.com',
   'github.com',
-  'gitee.com',
   'youxi.s3.bitiful.net',
 ])
 
