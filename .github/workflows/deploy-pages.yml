@@ -9,7 +9,6 @@ on:
       - 'package-lock.json'
       - 'packages/player/**'
       - 'packages/web/**'
-      - 'packages/wasm-core/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -37,31 +36,7 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: wasm32-unknown-unknown
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/wasm-pack
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/wasm-core/target
-          key: wasm-cargo-${{ hashFiles('packages/wasm-core/Cargo.lock') }}
-          restore-keys: |
-            wasm-cargo-
-
-      - name: Install wasm-pack
-        run: |
-          if ! command -v wasm-pack >/dev/null 2>&1; then
-            cargo install wasm-pack --locked
-          fi
-
       - run: npm ci
-      - run: bash scripts/build-wasm.sh
       - run: npm run build --workspace @nes-emulator/web
 
       - uses: actions/configure-pages@v5

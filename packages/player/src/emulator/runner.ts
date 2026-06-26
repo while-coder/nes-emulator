@@ -1,40 +1,79 @@
 /**
- * NES 运行器:封装 WASM 核心的生命周期、帧循环、画面渲染与音频输出。
+ * NES 运行器:封装 jsnes 核心的生命周期、帧循环、画面渲染与音频输出。
  *
- * 渲染:按真实时间锁定 ~60fps,每帧 step_frame -> update_pixels -> putImageData。
- * 音频:用 ScriptProcessorNode 周期性从核心拉取采样,经 GainNode 控制音量后输出。
- * 这些逻辑 Web 与 Tauri 完全通用(都跑在 WebView 里)。
+ * 渲染:按真实时间锁定 ~60fps,每帧 nes.frame() 后把 jsnes 的帧缓冲写入 canvas。
+ * 音频:jsnes 在执行帧时通过 onAudioSample 推送采样,这里写入环形缓冲,
+ * 再由 ScriptProcessorNode 稳定输出到浏览器音频设备。
  */
-import init, { WasmNes, Button } from '../wasm/nes_core'
+import { Controller, NES, type ButtonKey, type ControllerId } from 'jsnes'
 
 const WIDTH = 256
 const HEIGHT = 240
-const PIXELS_LEN = WIDTH * HEIGHT * 4
+const PIXELS_LEN = WIDTH * HEIGHT
 const AUDIO_BUFFER_LEN = 4096
+const AUDIO_QUEUE_LEN = 32768
 // NES(NTSC)实际帧率,用于在任意显示器刷新率下锁定运行速度。
 const TARGET_FPS = 60.0988
 const FRAME_MS = 1000 / TARGET_FPS
 
-let wasmReady: Promise<unknown> | null = null
+export enum Button {
+  Poweroff = 0,
+  Reset = 1,
+  Select = 2,
+  Start = 3,
+  Joypad1A = 4,
+  Joypad1B = 5,
+  Joypad1Up = 6,
+  Joypad1Down = 7,
+  Joypad1Left = 8,
+  Joypad1Right = 9,
+  Joypad2A = 10,
+  Joypad2B = 11,
+  Joypad2Up = 12,
+  Joypad2Down = 13,
+  Joypad2Left = 14,
+  Joypad2Right = 15,
+}
 
-/** 确保 WASM 只初始化一次。 */
-function ensureWasm(): Promise<unknown> {
-  if (!wasmReady) wasmReady = init()
-  return wasmReady
+type ButtonBinding = {
+  controller: ControllerId
+  button: ButtonKey
+}
+
+const BUTTON_BINDINGS: Partial<Record<Button, ButtonBinding>> = {
+  [Button.Select]: { controller: 1, button: Controller.BUTTON_SELECT },
+  [Button.Start]: { controller: 1, button: Controller.BUTTON_START },
+  [Button.Joypad1A]: { controller: 1, button: Controller.BUTTON_A },
+  [Button.Joypad1B]: { controller: 1, button: Controller.BUTTON_B },
+  [Button.Joypad1Up]: { controller: 1, button: Controller.BUTTON_UP },
+  [Button.Joypad1Down]: { controller: 1, button: Controller.BUTTON_DOWN },
+  [Button.Joypad1Left]: { controller: 1, button: Controller.BUTTON_LEFT },
+  [Button.Joypad1Right]: { controller: 1, button: Controller.BUTTON_RIGHT },
+  [Button.Joypad2A]: { controller: 2, button: Controller.BUTTON_A },
+  [Button.Joypad2B]: { controller: 2, button: Controller.BUTTON_B },
+  [Button.Joypad2Up]: { controller: 2, button: Controller.BUTTON_UP },
+  [Button.Joypad2Down]: { controller: 2, button: Controller.BUTTON_DOWN },
+  [Button.Joypad2Left]: { controller: 2, button: Controller.BUTTON_LEFT },
+  [Button.Joypad2Right]: { controller: 2, button: Controller.BUTTON_RIGHT },
 }
 
 export class NesRunner {
-  private nes: WasmNes | null = null
+  private nes: NES | null = null
   private readonly ctx: CanvasRenderingContext2D
   private readonly image: ImageData
-  private readonly pixels = new Uint8Array(PIXELS_LEN)
+  private readonly frame32: Uint32Array
+  private readonly frame8: Uint8ClampedArray
   private rafId = 0
   private running = false
 
   private audioCtx: AudioContext | null = null
   private scriptNode: ScriptProcessorNode | null = null
   private gainNode: GainNode | null = null
-  private readonly audioBuf = new Float32Array(AUDIO_BUFFER_LEN)
+  private readonly audioLeft = new Float32Array(AUDIO_QUEUE_LEN)
+  private readonly audioRight = new Float32Array(AUDIO_QUEUE_LEN)
+  private audioRead = 0
+  private audioWrite = 0
+  private audioQueued = 0
   private audioEnabled = true
   private volume = 1
   private speed = 1
@@ -50,32 +89,35 @@ export class NesRunner {
     if (!ctx) throw new Error('无法获取 2D 渲染上下文')
     this.ctx = ctx
     this.image = ctx.createImageData(WIDTH, HEIGHT)
+    this.frame8 = new Uint8ClampedArray(this.image.data.buffer)
+    this.frame32 = new Uint32Array(this.image.data.buffer)
   }
 
   /** 载入并启动一个 ROM。 */
   async loadRom(bytes: Uint8Array): Promise<void> {
-    await ensureWasm()
     this.stop()
-    this.nes = new WasmNes()
-    this.nes.set_rom(bytes)
-    this.nes.bootup()
+    this.clearAudioQueue()
     this.setupAudio()
+    this.nes = new NES({
+      sampleRate: this.audioCtx?.sampleRate ?? 44100,
+      emulateSound: true,
+      onFrame: (frameBuffer) => this.renderFrame(frameBuffer),
+      onAudioSample: (left, right) => this.enqueueAudio(left, right),
+    })
+    this.nes.loadROM(bytes)
+    this.nes.setFramerate(TARGET_FPS * this.speed)
     this.start()
   }
 
   private setupAudio(): void {
     if (!this.audioEnabled || this.audioCtx) return
     const ctx = new AudioContext()
-    // ScriptProcessorNode 已废弃但跨平台最稳;缓冲区大小与核心约定一致。
-    const node = ctx.createScriptProcessor(AUDIO_BUFFER_LEN, 0, 1)
+    // ScriptProcessorNode 已废弃但跨平台稳定,且足够承接 jsnes 的采样回调。
+    const node = ctx.createScriptProcessor(AUDIO_BUFFER_LEN, 0, 2)
     node.onaudioprocess = (e) => {
-      const out = e.outputBuffer.getChannelData(0)
-      if (!this.nes) {
-        out.fill(0)
-        return
-      }
-      this.nes.update_sample_buffer(this.audioBuf)
-      out.set(this.audioBuf)
+      const outL = e.outputBuffer.getChannelData(0)
+      const outR = e.outputBuffer.getChannelData(1)
+      this.fillAudioOutput(outL, outR)
     }
     const gain = ctx.createGain()
     gain.gain.value = this.volume
@@ -86,6 +128,52 @@ export class NesRunner {
     this.gainNode = gain
   }
 
+  private renderFrame(frameBuffer: Uint32Array): void {
+    for (let i = 0; i < PIXELS_LEN; i++) {
+      // jsnes 提供 0xRRGGBB;ImageData 在小端机器上可用 0xAABBGGRR 写入。
+      const color = frameBuffer[i]
+      this.frame32[i] =
+        0xff000000 |
+        ((color & 0xff0000) >> 16) |
+        (color & 0x00ff00) |
+        ((color & 0x0000ff) << 16)
+    }
+    this.image.data.set(this.frame8)
+    this.ctx.putImageData(this.image, 0, 0)
+  }
+
+  private enqueueAudio(left: number, right: number): void {
+    if (!this.audioEnabled) return
+    if (this.audioQueued >= AUDIO_QUEUE_LEN) {
+      this.audioRead = (this.audioRead + 1) % AUDIO_QUEUE_LEN
+      this.audioQueued--
+    }
+    this.audioLeft[this.audioWrite] = left
+    this.audioRight[this.audioWrite] = right
+    this.audioWrite = (this.audioWrite + 1) % AUDIO_QUEUE_LEN
+    this.audioQueued++
+  }
+
+  private fillAudioOutput(outL: Float32Array, outR: Float32Array): void {
+    for (let i = 0; i < outL.length; i++) {
+      if (this.audioQueued === 0) {
+        outL[i] = 0
+        outR[i] = 0
+        continue
+      }
+      outL[i] = this.audioLeft[this.audioRead]
+      outR[i] = this.audioRight[this.audioRead]
+      this.audioRead = (this.audioRead + 1) % AUDIO_QUEUE_LEN
+      this.audioQueued--
+    }
+  }
+
+  private clearAudioQueue(): void {
+    this.audioRead = 0
+    this.audioWrite = 0
+    this.audioQueued = 0
+  }
+
   /** 浏览器要求音频在用户手势后才能播放,需在点击事件里调用。 */
   resumeAudio(): void {
     void this.audioCtx?.resume()
@@ -94,6 +182,7 @@ export class NesRunner {
   setAudioEnabled(on: boolean): void {
     this.audioEnabled = on
     if (!on && this.audioCtx) {
+      this.clearAudioQueue()
       void this.audioCtx.suspend()
     } else if (on) {
       this.setupAudio()
@@ -111,6 +200,7 @@ export class NesRunner {
   setSpeed(n: number): void {
     this.speed = n > 0 ? n : 1
     this.frameAcc = 0
+    this.nes?.setFramerate(TARGET_FPS * this.speed)
   }
 
   private start(): void {
@@ -122,28 +212,29 @@ export class NesRunner {
     let fpsWindowStart = 0
     const loop = (now: number) => {
       if (!this.running || !this.nes) return
-      // 临时探针:每秒打印实际模拟帧率,用于确认是否锁定在 ~60fps。
       if (fpsWindowStart === 0) fpsWindowStart = now
       if (now - fpsWindowStart >= 1000) {
         console.log(`[NES] 实际帧率 ≈ ${fpsFrames} fps (speed=${this.speed})`)
         fpsFrames = 0
         fpsWindowStart = now
       }
-      // 按真实经过时间累积应跑的帧数,使速度与显示器刷新率(60/120/144Hz)无关。
       if (this.lastTime === 0) this.lastTime = now
       let dt = now - this.lastTime
       this.lastTime = now
-      if (dt > 250) dt = 250 // 切后台/卡顿后回来,避免一次性狂跑
+      if (dt > 250) dt = 250
       this.frameAcc += (dt / FRAME_MS) * this.speed
       let steps = Math.floor(this.frameAcc)
       this.frameAcc -= steps
       if (steps > 0) {
         if (steps > 4) steps = 4
         fpsFrames += steps
-        for (let i = 0; i < steps; i++) this.nes.step_frame()
-        this.nes.update_pixels(this.pixels)
-        this.image.data.set(this.pixels)
-        this.ctx.putImageData(this.image, 0, 0)
+        try {
+          for (let i = 0; i < steps; i++) this.nes.frame()
+        } catch (err) {
+          this.stop()
+          console.error('[NES] 模拟器运行失败', err)
+          throw err
+        }
       }
       this.rafId = requestAnimationFrame(loop)
     }
@@ -181,21 +272,32 @@ export class NesRunner {
   unload(): void {
     this.stop()
     void this.audioCtx?.suspend()
-    this.nes?.free()
     this.nes = null
+    this.clearAudioQueue()
     this.ctx.clearRect(0, 0, WIDTH, HEIGHT)
   }
 
   reset(): void {
     this.nes?.reset()
+    this.clearAudioQueue()
   }
 
   press(button: Button): void {
-    this.nes?.press_button(button)
+    if (button === Button.Reset) {
+      this.reset()
+      return
+    }
+    if (button === Button.Poweroff) {
+      this.unload()
+      return
+    }
+    const binding = BUTTON_BINDINGS[button]
+    if (binding) this.nes?.buttonDown(binding.controller, binding.button)
   }
 
   release(button: Button): void {
-    this.nes?.release_button(button)
+    const binding = BUTTON_BINDINGS[button]
+    if (binding) this.nes?.buttonUp(binding.controller, binding.button)
   }
 
   /** 是否已载入 ROM。 */
@@ -210,10 +312,9 @@ export class NesRunner {
     this.audioCtx = null
     this.scriptNode = null
     this.gainNode = null
-    this.nes?.free()
     this.nes = null
+    this.clearAudioQueue()
   }
 }
 
-export { Button }
 export const SCREEN = { WIDTH, HEIGHT }

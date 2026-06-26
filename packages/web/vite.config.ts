@@ -1,11 +1,8 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
-import wasm from 'vite-plugin-wasm'
-import topLevelAwait from 'vite-plugin-top-level-await'
 
-// WASM 包由 wasm-pack 输出到 packages/player/src/wasm,Vite 通过 vite-plugin-wasm 直接 import
 export default defineConfig({
-  plugins: [vue(), wasm(), topLevelAwait()],
+  plugins: [vue()],
   // Tauri 需要固定端口、相对资源路径
   base: './',
   server: {
