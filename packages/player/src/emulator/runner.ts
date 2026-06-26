@@ -5,6 +5,7 @@
  * 音频:jsnes 在执行帧时通过 onAudioSample 推送采样,这里写入环形缓冲,
  * 再由 ScriptProcessorNode 稳定输出到浏览器音频设备。
  */
+import './jsnes-mapper90.js'
 import { Controller, NES, type ButtonKey, type ControllerId } from 'jsnes'
 
 const WIDTH = 256

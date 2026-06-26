@@ -5,18 +5,16 @@ import { fileURLToPath } from 'node:url'
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 const rootDir = path.resolve(scriptDir, '..')
-const githubRawPrefix = 'https://raw.githubusercontent.com/while-coder/nes-roms/main/'
-const defaultCatalogUrl = `${githubRawPrefix}catalog.json`
+const defaultCatalogUrl = 'https://raw.githubusercontent.com/while-coder/nes-roms/main/catalog.json'
 const defaultLocalCatalogPath = process.platform === 'win32' ? 'E:\\nes-roms\\catalog.json' : ''
 const fallbackLocalCatalogPath = path.resolve(rootDir, '..', 'nes-roms', 'catalog.json')
 const outputPath = path.resolve(rootDir, 'packages', 'web', 'public', 'catalog.json')
 
 const catalog = await readCatalog()
-const prepared = prepareCatalog(catalog)
 await mkdir(path.dirname(outputPath), { recursive: true })
-await writeFile(outputPath, `${JSON.stringify(prepared, null, 2)}\n`, 'utf8')
+await writeFile(outputPath, `${JSON.stringify(catalog, null, 2)}\n`, 'utf8')
 
-console.log(`ROM catalog synced: ${prepared.games.length} games -> ${path.relative(rootDir, outputPath)}`)
+console.log(`ROM catalog synced: ${catalog.games.length} games -> ${path.relative(rootDir, outputPath)}`)
 
 async function readCatalog() {
   const explicitPath = process.env.NES_ROM_CATALOG_PATH?.trim()
@@ -42,33 +40,4 @@ function parseCatalog(text, source) {
     throw new Error(`Invalid ROM catalog from ${source}: missing games array`)
   }
   return catalog
-}
-
-function prepareCatalog(catalog) {
-  const downloadBase = process.env.NES_ROM_DOWNLOAD_BASE_URL?.trim()
-  if (!downloadBase) return catalog
-
-  return {
-    ...catalog,
-    rom_url_base: downloadBase,
-    games: catalog.games.map((game) => ({
-      ...game,
-      download_url: joinUrlPath(downloadBase, romPathFromDownloadUrl(game.download_url)),
-    })),
-  }
-}
-
-function romPathFromDownloadUrl(url) {
-  if (typeof url === 'string' && url.startsWith(githubRawPrefix)) {
-    return url.slice(githubRawPrefix.length)
-  }
-  try {
-    return new URL(url).pathname.replace(/^\/+/, '')
-  } catch {
-    return String(url).replace(/^\/+/, '')
-  }
-}
-
-function joinUrlPath(base, value) {
-  return `${base.replace(/\/+$/, '')}/${value.replace(/^\/+/, '')}`
 }

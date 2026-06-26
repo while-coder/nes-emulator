@@ -19,9 +19,7 @@ export type RomCatalog = {
   games: RomEntry[]
 }
 
-const GITHUB_RAW_PREFIX = 'https://raw.githubusercontent.com/while-coder/nes-roms/main/'
 const configuredCatalogUrl = import.meta.env.VITE_ROM_CATALOG_URL?.trim()
-const configuredDownloadBaseUrl = import.meta.env.VITE_ROM_DOWNLOAD_BASE_URL?.trim()
 
 export const DEFAULT_CATALOG_URL = configuredCatalogUrl || './catalog.json'
 
@@ -51,7 +49,7 @@ export async function loadRomCatalog(url = DEFAULT_CATALOG_URL): Promise<RomCata
       throw new Error('ROM 目录缺少必要字段')
     }
   }
-  return normalizeRomCatalog(catalog)
+  return catalog
 }
 
 export function listGenres(games: RomEntry[]): string[] {
@@ -98,38 +96,6 @@ function normalize(value: unknown): string {
   return String(value ?? '')
     .trim()
     .toLocaleLowerCase('zh-Hans-CN')
-}
-
-function normalizeRomCatalog(catalog: RomCatalog): RomCatalog {
-  return {
-    ...catalog,
-    games: catalog.games.map((game) => ({
-      ...game,
-      download_url: normalizeDownloadUrl(game.download_url),
-    })),
-  }
-}
-
-function normalizeDownloadUrl(url: string): string {
-  if (configuredDownloadBaseUrl) {
-    return joinUrlPath(configuredDownloadBaseUrl, romPathFromDownloadUrl(url))
-  }
-  return url
-}
-
-function romPathFromDownloadUrl(url: string): string {
-  if (url.startsWith(GITHUB_RAW_PREFIX)) {
-    return url.slice(GITHUB_RAW_PREFIX.length)
-  }
-  try {
-    return new URL(url).pathname.replace(/^\/+/, '')
-  } catch {
-    return url.replace(/^\/+/, '')
-  }
-}
-
-function joinUrlPath(base: string, path: string): string {
-  return `${base.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`
 }
 
 function networkErrorMessage(err: unknown): string {
