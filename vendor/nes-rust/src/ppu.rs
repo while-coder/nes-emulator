@@ -1041,7 +1041,7 @@ impl Ppu {
 		// read from the grey column 0x00, 0x10, 0x20, or 0x30
 		let mask = match self.ppumask.is_greyscale() {
 			true => 0x30,
-			false => 0xFF
+			false => 0x3F
 		};
 		PALETTES[(address & mask) as usize] & 0xFFFFFF
 	}
@@ -1374,5 +1374,17 @@ impl Sprite {
 			true => height - 1 - (y - self.get_y()),
 			false => y - self.get_y()
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests_ppu {
+	use super::*;
+	use default_display::DefaultDisplay;
+
+	#[test]
+	fn load_palette_masks_to_6bit_color_index() {
+		let ppu = Ppu::new(Box::new(DefaultDisplay::new()));
+		assert_eq!(PALETTES[0x3F] & 0xFFFFFF, ppu.load_palette(0xFF));
 	}
 }
