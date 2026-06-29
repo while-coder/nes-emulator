@@ -887,4 +887,103 @@ function formatError(err: unknown): string {
     flex-wrap: wrap;
   }
 }
+
+/* 手机横屏:总高 ~360-400px,默认 chrome 会吃掉 ~240px 让列表几乎不可见。
+   全屏铺满 + 大幅压缩 header/tools/summary/pager,并把卡片维持在单行(横向 grid)
+   再隐藏次要元信息(标签 / 最后使用),让列表区至少 5-6 行可见。 */
+@media (orientation: landscape) and (max-height: 540px) {
+  .store-backdrop {
+    padding: 0;
+  }
+  .store-panel {
+    max-height: 100%;
+    width: 100%;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .store-header {
+    padding: 6px 12px;
+  }
+  .store-header h2 {
+    font-size: 14px;
+  }
+  .store-header p {
+    display: none;
+  }
+  .close-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+  }
+  .store-tabs {
+    padding: 2px 12px 0;
+  }
+  .tab {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  .store-tools {
+    padding: 6px 12px;
+    gap: 6px;
+    grid-template-columns: minmax(120px, 1fr) minmax(80px, 130px) minmax(80px, 130px);
+  }
+  .search,
+  .select {
+    height: 28px;
+    font-size: 12px;
+  }
+  .store-summary {
+    min-height: 0;
+    padding: 3px 12px;
+    flex-direction: row;
+    align-items: center;
+    font-size: 11px;
+  }
+  .game-list {
+    padding: 6px 12px 8px;
+  }
+  .game-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 6px 8px;
+    gap: 8px;
+  }
+  .game-card + .game-card {
+    margin-top: 6px;
+  }
+  .game-title-row h3 {
+    font-size: 13px;
+  }
+  .meta {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+  .meta.played,
+  .tags {
+    display: none;
+  }
+  .game-actions {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+  .btn {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+  .store-pager {
+    padding: 4px 12px;
+    gap: 4px;
+  }
+  .pager-btn {
+    height: 26px;
+    min-width: 44px;
+    padding: 0 8px;
+    font-size: 12px;
+  }
+  .page-info {
+    min-width: 56px;
+    font-size: 12px;
+  }
+}
 </style>

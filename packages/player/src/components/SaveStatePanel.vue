@@ -520,4 +520,80 @@ function formatError(err: unknown): string {
     flex-wrap: wrap;
   }
 }
+
+/* 手机横屏:压缩 chrome、卡片维持单行,把垂直空间让给列表。同 RomStorePanel。 */
+@media (orientation: landscape) and (max-height: 540px) {
+  .store-backdrop {
+    padding: 0;
+  }
+  .store-panel {
+    max-height: 100%;
+    width: 100%;
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+  }
+  .store-header {
+    padding: 6px 12px;
+  }
+  .store-header h2 {
+    font-size: 14px;
+  }
+  .store-header p {
+    display: none;
+  }
+  .close-btn {
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+  }
+  .store-tools {
+    padding: 6px 12px;
+    gap: 6px;
+    grid-template-columns: minmax(120px, 1fr) minmax(100px, 160px);
+  }
+  .search,
+  .select {
+    height: 28px;
+    font-size: 12px;
+  }
+  .store-summary {
+    min-height: 0;
+    padding: 3px 12px;
+    flex-direction: row;
+    align-items: center;
+    font-size: 11px;
+  }
+  .save-list {
+    padding: 6px 12px 8px;
+  }
+  .save-card {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 6px 8px;
+    gap: 8px;
+  }
+  .save-card + .save-card {
+    margin-top: 6px;
+  }
+  .save-title-row h3 {
+    font-size: 13px;
+  }
+  .meta {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+  /* 横屏空间紧,隐藏时间一行,保留游戏名 */
+  .meta.time {
+    display: none;
+  }
+  .save-actions {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+  }
+  .btn {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+}
 </style>

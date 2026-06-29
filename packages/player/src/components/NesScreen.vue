@@ -444,6 +444,7 @@ onBeforeUnmount(() => {
   ro = null
   runner?.dispose()
   runner = null
+  unlockOrientation()
 })
 
 // 设置变化 -> 同步到 runner 与画面尺寸。
@@ -475,10 +476,29 @@ async function toggleFullscreen() {
   }
 }
 
+// 屏幕方向:载入 ROM 后尝试锁横屏(NES 横屏游玩体验更好),停止 / 卸载时解锁。
+// 仅在 PWA standalone 或全屏下生效;桌面 / 普通浏览器标签会被拒,静默忽略。
+async function lockLandscape() {
+  try {
+    await screen.orientation?.lock?.('landscape')
+  } catch (err) {
+    // 桌面、iOS Safari、非 PWA 浏览器都可能拒绝,这是预期行为。
+    console.debug('[NES] 横屏锁定不可用', err)
+  }
+}
+function unlockOrientation() {
+  try {
+    screen.orientation?.unlock?.()
+  } catch {
+    // ignore
+  }
+}
+
 // 暴露给父组件
 async function loadRom(bytes: Uint8Array) {
   runner?.resumeAudio()
   await runner?.loadRom(bytes)
+  void lockLandscape()
 }
 function reset() {
   runner?.reset()
@@ -495,6 +515,7 @@ function resume() {
 }
 function stop() {
   runner?.unload()
+  unlockOrientation()
 }
 
 // 供存档列表面板使用:抓取当前引擎状态 / 把某条存档状态应用到引擎。
