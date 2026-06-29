@@ -122,7 +122,7 @@ function isINes(bytes: Uint8Array): boolean {
   )
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   if (!crypto.subtle) {
     throw new Error('当前环境不支持 SHA-256 校验')
   }

@@ -214,16 +214,8 @@ export class NesRunner {
     this.running = true
     this.lastTime = 0
     this.frameAcc = 0
-    let fpsFrames = 0
-    let fpsWindowStart = 0
     const loop = (now: number) => {
       if (!this.running || !this.nes) return
-      if (fpsWindowStart === 0) fpsWindowStart = now
-      if (now - fpsWindowStart >= 1000) {
-        console.log(`[NES] 实际帧率 ≈ ${fpsFrames} fps (speed=${this.speed})`)
-        fpsFrames = 0
-        fpsWindowStart = now
-      }
       if (this.lastTime === 0) this.lastTime = now
       let dt = now - this.lastTime
       this.lastTime = now
@@ -233,7 +225,6 @@ export class NesRunner {
       this.frameAcc -= steps
       if (steps > 0) {
         if (steps > 4) steps = 4
-        fpsFrames += steps
         try {
           for (let i = 0; i < steps; i++) this.nes.frame()
         } catch (err) {

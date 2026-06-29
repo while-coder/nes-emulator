@@ -4,8 +4,8 @@ export type RomEntry = {
   publisher?: string
   tags?: string[]
   download_url: string
-  file_size: number
-  sha256: string
+  file_size?: number
+  sha256?: string
   mapper?: number
 }
 
@@ -75,7 +75,8 @@ export function searchRoms(
 }
 
 export function romKey(game: RomEntry): string {
-  return game.sha256
+  // loadRomCatalog 已强制每条目都有 sha256(见上方校验),故此处可安全断言非空。
+  return game.sha256!
 }
 
 function searchableText(game: RomEntry): string {

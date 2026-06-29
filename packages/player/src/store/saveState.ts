@@ -11,8 +11,10 @@ export type SaveStateRecord = {
   key: string
   romKey: string
   slot: string
-  /** 存档时的 ROM 显示名,供存档列表展示。 */
+  /** 存档时的 ROM 显示名,供存档列表按游戏分组/过滤展示。 */
   name: string
+  /** 用户可编辑的存档名;旧记录无此字段时展示层回退到 name。 */
+  label?: string
   state: SaveState
   savedAt: number
 }
@@ -22,9 +24,16 @@ const DB_VERSION = 1
 const STORE_NAME = 'saves'
 
 let dbPromise: Promise<IDBDatabase> | null = null
+// 同一毫秒内多次新建存档时用于区分 slot,避免主键冲突。
+let slotSeq = 0
 
 function recordKey(romKey: string, slot: string): string {
   return `${romKey}:${slot}`
+}
+
+/** 生成一个不重复的存档 slot,用于多存档列表的新建。 */
+function newSlot(): string {
+  return `s-${Date.now()}-${(slotSeq++).toString(36)}`
 }
 
 export async function putSaveState(
@@ -32,6 +41,7 @@ export async function putSaveState(
   slot: string,
   name: string,
   state: SaveState,
+  label?: string,
 ): Promise<void> {
   const db = await openDb()
   const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -41,10 +51,69 @@ export async function putSaveState(
     romKey,
     slot,
     name,
+    label,
     state,
     savedAt: Date.now(),
   }
   await requestToPromise(tx.objectStore(STORE_NAME).put(record))
+  await done
+}
+
+/** 新建一条多存档列表用的存档(自动分配唯一 slot),返回新记录。 */
+export async function createSaveState(
+  romKey: string,
+  name: string,
+  label: string,
+  state: SaveState,
+): Promise<SaveStateRecord> {
+  const db = await openDb()
+  const tx = db.transaction(STORE_NAME, 'readwrite')
+  const done = txDone(tx)
+  const slot = newSlot()
+  const record: SaveStateRecord = {
+    key: recordKey(romKey, slot),
+    romKey,
+    slot,
+    name,
+    label,
+    state,
+    savedAt: Date.now(),
+  }
+  await requestToPromise(tx.objectStore(STORE_NAME).put(record))
+  await done
+  return record
+}
+
+/** 列出全部存档(跨游戏,按存档时间倒序),供存档列表「全部」视图用。 */
+export async function listAllSaveStates(): Promise<SaveStateRecord[]> {
+  const db = await openDb()
+  const tx = db.transaction(STORE_NAME, 'readonly')
+  const done = txDone(tx)
+  const all = await requestToPromise<SaveStateRecord[]>(tx.objectStore(STORE_NAME).getAll())
+  await done
+  return all.sort((a, b) => b.savedAt - a.savedAt)
+}
+
+/** 修改某条存档的显示名(label)。 */
+export async function renameSaveState(key: string, label: string): Promise<void> {
+  const db = await openDb()
+  const tx = db.transaction(STORE_NAME, 'readwrite')
+  const done = txDone(tx)
+  const store = tx.objectStore(STORE_NAME)
+  const record = await requestToPromise<SaveStateRecord | undefined>(store.get(key))
+  if (record) {
+    record.label = label
+    await requestToPromise(store.put(record))
+  }
+  await done
+}
+
+/** 按主键删除一条存档(配合 listAllSaveStates 的跨游戏列表)。 */
+export async function deleteSaveStateByKey(key: string): Promise<void> {
+  const db = await openDb()
+  const tx = db.transaction(STORE_NAME, 'readwrite')
+  const done = txDone(tx)
+  await requestToPromise(tx.objectStore(STORE_NAME).delete(key))
   await done
 }
 

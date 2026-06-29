@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Button, NesRunner } from '../emulator/runner'
-import { getSaveState, putSaveState } from '../store/saveState'
+import { Button, NesRunner, type SaveState } from '../emulator/runner'
+import { createSaveState, getSaveState, listSaveStates, putSaveState } from '../store/saveState'
 import {
   buildCodeToButton,
   buildPadToButton,
@@ -56,6 +56,27 @@ async function quickSave() {
   try {
     await putSaveState(props.romKey, QUICK_SLOT, props.romName ?? props.romKey, state)
     showToast('已存档')
+  } catch {
+    showToast('存档失败')
+  }
+}
+
+// 快速新建存档:不覆盖 quick,而是往存档列表追加一条(自动编号 label)。
+async function quickNewSave() {
+  if (!runner?.loaded || !props.romKey) {
+    showToast('请先载入游戏')
+    return
+  }
+  const state = runner.saveState()
+  if (!state) {
+    showToast('存档失败')
+    return
+  }
+  try {
+    const list = await listSaveStates(props.romKey)
+    const count = list.filter((r) => r.slot !== QUICK_SLOT).length
+    await createSaveState(props.romKey, props.romName ?? props.romKey, `存档 ${count + 1}`, state)
+    showToast('已新建存档')
   } catch {
     showToast('存档失败')
   }
@@ -428,6 +449,17 @@ function resume() {
 function stop() {
   runner?.unload()
 }
+
+// 供存档列表面板使用:抓取当前引擎状态 / 把某条存档状态应用到引擎。
+function captureState() {
+  return runner?.loaded ? (runner.saveState() ?? null) : null
+}
+function applyState(state: SaveState): boolean {
+  if (!runner?.loaded) return false
+  const ok = runner.loadState(state)
+  showToast(ok ? '已读档' : '读档失败')
+  return ok
+}
 defineExpose({
   loadRom,
   reset,
@@ -438,6 +470,9 @@ defineExpose({
   stop,
   quickSave,
   quickLoad,
+  quickNewSave,
+  captureState,
+  applyState,
 })
 </script>
 

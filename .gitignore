@@ -1,6 +1,5 @@
 # Rust
 packages/app/src-tauri/target/
-packages/wasm-core/target/
 
 # Node
 node_modules/
@@ -9,9 +8,6 @@ packages/player/node_modules/
 packages/web/node_modules/
 packages/app/dist/
 packages/web/dist/
-
-# WASM 构建产物(由 scripts/build-wasm.sh 生成)
-packages/player/src/wasm/
 
 # TypeScript 增量构建产物
 **/tsconfig.tsbuildinfo

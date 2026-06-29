@@ -5,23 +5,26 @@ import {
   codeLabel,
   NesScreen,
   RomStorePanel,
+  SaveStatePanel,
   SettingsModal,
   settings,
+  sha256Hex,
+  type SaveState,
 } from '@nes-emulator/player'
 import { isTauri, pickRomFile, storage } from './emulator/platform'
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)
 const romName = ref<string | null>(storage.getLastRom())
-// 当前卡带的稳定标识,用于把存档绑定到对应游戏;本地文件以文件名作 key。
+// 当前卡带的稳定标识(sha256),把存档绑定到对应游戏;读档时据此找回 ROM。
 const romKey = ref<string | null>(null)
 const audioOn = ref(true)
 const loading = ref(false)
 const paused = ref(false)
 const settingsOpen = ref(false)
 const storeOpen = ref(false)
+const savesOpen = ref(false)
 
-// 按键说明:跟随设置中的按键映射动态生成,改键后自动同步。
-// 按键说明:展示玩家1的键盘映射,改键后自动同步。
+// 按键说明:展示玩家1的键盘映射,跟随设置动态生成,改键后自动同步。
 const keyHint = computed(() => {
   const keymap = settings.players[0].keymap
   return PAD_BUTTON_LIST.filter((i) => keymap[i.btn])
@@ -32,7 +35,9 @@ const keyHint = computed(() => {
 async function openRom() {
   const picked = await pickRomFile()
   if (!picked) return
-  await loadRomBytes(picked.name, picked.bytes, `local:${picked.name}`)
+  // 用 sha256 作 key,使本地文件与 ROM 库下载的同一游戏共享存档,并支持读档找回。
+  const key = await sha256Hex(picked.bytes)
+  await loadRomBytes(picked.name, picked.bytes, key)
 }
 
 async function loadRomBytes(name: string, bytes: Uint8Array, key: string) {
@@ -53,6 +58,19 @@ function saveState() {
 }
 function loadState() {
   screen.value?.quickLoad()
+}
+
+// 从存档列表读档:带 bytes 表示需先载入对应游戏,然后把状态套用到引擎。
+async function onLoadSave(payload: {
+  romKey: string
+  name: string
+  state: SaveState
+  bytes?: Uint8Array
+}) {
+  if (payload.bytes) {
+    await loadRomBytes(payload.name, payload.bytes, payload.romKey)
+  }
+  screen.value?.applyState(payload.state)
 }
 
 function reset() {
@@ -102,6 +120,7 @@ function toggleAudio() {
       <button class="btn" :disabled="!romName" @click="reset">复位</button>
       <button class="btn" :disabled="!romName" @click="saveState">存档</button>
       <button class="btn" :disabled="!romName" @click="loadState">读档</button>
+      <button class="btn" @click="savesOpen = true">存档列表</button>
       <button class="btn" @click="toggleFullscreen">全屏</button>
       <button class="btn" @click="toggleAudio">{{ audioOn ? '🔊' : '🔇' }}</button>
       <button class="btn" @click="settingsOpen = true">⚙ 设置</button>
@@ -112,6 +131,7 @@ function toggleAudio() {
       v-model:open="storeOpen"
       @load="(payload) => loadRomBytes(payload.name, payload.bytes, payload.key)"
     />
+    <SaveStatePanel v-model:open="savesOpen" :current-rom-key="romKey" @load="onLoadSave" />
 
     <main class="stage">
       <NesScreen ref="screen" :rom-key="romKey" :rom-name="romName" />
