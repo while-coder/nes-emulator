@@ -23,7 +23,7 @@ type StoreTab = 'downloaded' | 'online'
 
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{
-  load: [{ name: string; bytes: Uint8Array }]
+  load: [{ name: string; bytes: Uint8Array; key: string }]
 }>()
 
 const catalog = ref<RomCatalog>(emptyRomCatalog())
@@ -335,7 +335,7 @@ async function play(game: RomEntry) {
     }
     await touchCachedRom(key)
     await refreshCached()
-    emit('load', { name: game.name, bytes })
+    emit('load', { name: game.name, bytes, key })
     open.value = false
   } catch (err) {
     error.value = formatError(err)
@@ -357,7 +357,7 @@ async function playCached(rom: CachedRom) {
     }
     await touchCachedRom(rom.key)
     await refreshCached()
-    emit('load', { name: cached.name, bytes: cached.bytes })
+    emit('load', { name: cached.name, bytes: cached.bytes, key: rom.key })
     open.value = false
   } catch (err) {
     error.value = formatError(err)

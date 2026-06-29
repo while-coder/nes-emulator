@@ -12,6 +12,8 @@ import { isTauri, pickRomFile, storage } from './emulator/platform'
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)
 const romName = ref<string | null>(storage.getLastRom())
+// 当前卡带的稳定标识,用于把存档绑定到对应游戏;本地文件以文件名作 key。
+const romKey = ref<string | null>(null)
 const audioOn = ref(true)
 const loading = ref(false)
 const paused = ref(false)
@@ -30,19 +32,27 @@ const keyHint = computed(() => {
 async function openRom() {
   const picked = await pickRomFile()
   if (!picked) return
-  await loadRomBytes(picked.name, picked.bytes)
+  await loadRomBytes(picked.name, picked.bytes, `local:${picked.name}`)
 }
 
-async function loadRomBytes(name: string, bytes: Uint8Array) {
+async function loadRomBytes(name: string, bytes: Uint8Array, key: string) {
   loading.value = true
   try {
     await screen.value?.loadRom(bytes)
     romName.value = name
+    romKey.value = key
     paused.value = false
     storage.setLastRom(name)
   } finally {
     loading.value = false
   }
+}
+
+function saveState() {
+  screen.value?.quickSave()
+}
+function loadState() {
+  screen.value?.quickLoad()
 }
 
 function reset() {
@@ -62,6 +72,7 @@ function togglePause() {
 function stopRom() {
   screen.value?.stop()
   romName.value = null
+  romKey.value = null
   paused.value = false
 }
 
@@ -89,16 +100,21 @@ function toggleAudio() {
       </button>
       <button class="btn" :disabled="!romName" @click="stopRom">中止</button>
       <button class="btn" :disabled="!romName" @click="reset">复位</button>
+      <button class="btn" :disabled="!romName" @click="saveState">存档</button>
+      <button class="btn" :disabled="!romName" @click="loadState">读档</button>
       <button class="btn" @click="toggleFullscreen">全屏</button>
       <button class="btn" @click="toggleAudio">{{ audioOn ? '🔊' : '🔇' }}</button>
       <button class="btn" @click="settingsOpen = true">⚙ 设置</button>
     </header>
 
     <SettingsModal v-model:open="settingsOpen" />
-    <RomStorePanel v-model:open="storeOpen" @load="(payload) => loadRomBytes(payload.name, payload.bytes)" />
+    <RomStorePanel
+      v-model:open="storeOpen"
+      @load="(payload) => loadRomBytes(payload.name, payload.bytes, payload.key)"
+    />
 
     <main class="stage">
-      <NesScreen ref="screen" />
+      <NesScreen ref="screen" :rom-key="romKey" :rom-name="romName" />
       <p v-if="!romName" class="hint">点击「打开 ROM」选择一个 .nes 文件开始游戏</p>
     </main>
 

@@ -6,7 +6,10 @@
  * 再由 ScriptProcessorNode 稳定输出到浏览器音频设备。
  */
 import './jsnes-mapper90.js'
-import { Controller, NES, type ButtonKey, type ControllerId } from 'jsnes'
+import { Controller, NES, type ButtonKey, type ControllerId, type EmulatorData } from 'jsnes'
+
+/** 存档快照:jsnes 引擎完整状态的可序列化对象(可直接存入 IndexedDB)。 */
+export type SaveState = EmulatorData
 
 const WIDTH = 256
 const HEIGHT = 240
@@ -283,6 +286,28 @@ export class NesRunner {
   reset(): void {
     this.nes?.reset()
     this.clearAudioQueue()
+  }
+
+  /** 导出当前引擎状态为存档快照;未载入 ROM 时返回 null。 */
+  saveState(): SaveState | null {
+    if (!this.nes) return null
+    return this.nes.toJSON()
+  }
+
+  /**
+   * 从存档快照恢复引擎状态。需先载入对应 ROM(同一卡带)。
+   * 返回是否成功(状态损坏或 mapper 不支持时返回 false,不影响当前运行)。
+   */
+  loadState(state: SaveState): boolean {
+    if (!this.nes) return false
+    try {
+      this.nes.fromJSON(state)
+      this.clearAudioQueue()
+      return true
+    } catch (err) {
+      console.error('[NES] 读取存档失败', err)
+      return false
+    }
   }
 
   press(button: Button): void {

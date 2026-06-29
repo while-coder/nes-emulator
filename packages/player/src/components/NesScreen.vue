@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button, NesRunner } from '../emulator/runner'
+import { getSaveState, putSaveState } from '../store/saveState'
 import {
   buildCodeToButton,
   buildPadToButton,
@@ -15,7 +16,12 @@ import {
 } from '../emulator/settings'
 
 // inputLocked:模态(游戏库/设置)打开时为真,此时不把输入喂给游戏。
-const props = defineProps<{ inputLocked?: boolean }>()
+// romKey/romName:当前载入卡带的稳定标识与显示名,用于把存档绑定到对应游戏。
+const props = defineProps<{
+  inputLocked?: boolean
+  romKey?: string | null
+  romName?: string | null
+}>()
 // systemAction:应用级快捷键(手柄空闲键 / 键盘),交父组件处理。
 const emit = defineEmits<{ systemAction: [action: string] }>()
 
@@ -23,6 +29,56 @@ const canvasRef = ref<HTMLCanvasElement | null>(null)
 const wrapRef = ref<HTMLDivElement | null>(null)
 const frameRef = ref<HTMLDivElement | null>(null)
 let runner: NesRunner | null = null
+
+// 快速存档/读档:单槽,按 romKey 绑定。toast 显示一行短暂的操作反馈。
+const QUICK_SLOT = 'quick'
+const toast = ref('')
+let toastTimer = 0
+function showToast(msg: string) {
+  toast.value = msg
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = window.setTimeout(() => {
+    toast.value = ''
+    toastTimer = 0
+  }, 1600)
+}
+
+async function quickSave() {
+  if (!runner?.loaded || !props.romKey) {
+    showToast('请先载入游戏')
+    return
+  }
+  const state = runner.saveState()
+  if (!state) {
+    showToast('存档失败')
+    return
+  }
+  try {
+    await putSaveState(props.romKey, QUICK_SLOT, props.romName ?? props.romKey, state)
+    showToast('已存档')
+  } catch {
+    showToast('存档失败')
+  }
+}
+
+async function quickLoad() {
+  if (!runner?.loaded || !props.romKey) {
+    showToast('请先载入游戏')
+    return
+  }
+  let record
+  try {
+    record = await getSaveState(props.romKey, QUICK_SLOT)
+  } catch {
+    showToast('读档失败')
+    return
+  }
+  if (!record) {
+    showToast('暂无存档')
+    return
+  }
+  showToast(runner.loadState(record.state) ? '已读档' : '读档失败')
+}
 
 const NATIVE_W = 256
 const NATIVE_H = 240
@@ -48,6 +104,17 @@ function onKeyDown(e: KeyboardEvent) {
   if (e.code === 'Backquote') {
     e.preventDefault()
     if (!e.repeat) emit('systemAction', 'open-library')
+    return
+  }
+  // F2=快速存档,F4=快速读档(单槽,按 ROM 绑定)。
+  if (e.code === 'F2') {
+    e.preventDefault()
+    if (!e.repeat) void quickSave()
+    return
+  }
+  if (e.code === 'F4') {
+    e.preventDefault()
+    if (!e.repeat) void quickLoad()
     return
   }
   const a = codeToAction.value[e.code]
@@ -308,6 +375,8 @@ onBeforeUnmount(() => {
   padRaf = 0
   if (turboTimer) clearInterval(turboTimer)
   turboTimer = 0
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = 0
   ro?.disconnect()
   ro = null
   runner?.dispose()
@@ -359,7 +428,17 @@ function resume() {
 function stop() {
   runner?.unload()
 }
-defineExpose({ loadRom, reset, setAudioEnabled, toggleFullscreen, pause, resume, stop })
+defineExpose({
+  loadRom,
+  reset,
+  setAudioEnabled,
+  toggleFullscreen,
+  pause,
+  resume,
+  stop,
+  quickSave,
+  quickLoad,
+})
 </script>
 
 <template>
@@ -367,6 +446,9 @@ defineExpose({ loadRom, reset, setAudioEnabled, toggleFullscreen, pause, resume,
     <div ref="frameRef" class="frame">
       <canvas ref="canvasRef" class="screen" :style="canvasStyle" />
       <div v-if="settings.display.scanlines" class="scanlines" />
+      <transition name="toast-fade">
+        <div v-if="toast" class="toast">{{ toast }}</div>
+      </transition>
     </div>
 
     <!-- 触屏手柄:小霸王布局(左方向键、中 SELECT/START、右田字四键) -->
@@ -473,6 +555,28 @@ defineExpose({ loadRom, reset, setAudioEnabled, toggleFullscreen, pause, resume,
   /* 画面拉伸填满盒子(盒子已是目标宽高比) */
   object-fit: fill;
   image-rendering: pixelated;
+}
+/* 存档/读档等操作的短暂屏幕提示 */
+.toast {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 13px;
+  border-radius: 6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
 }
 /* CRT 扫描线:横向半透明暗线叠加 */
 .scanlines {

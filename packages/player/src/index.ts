@@ -1,7 +1,14 @@
 export { default as NesScreen } from './components/NesScreen.vue'
 export { default as SettingsModal } from './components/SettingsModal.vue'
 export { default as RomStorePanel } from './components/RomStorePanel.vue'
-export { Button, NesRunner, SCREEN } from './emulator/runner'
+export { Button, NesRunner, SCREEN, type SaveState } from './emulator/runner'
+export {
+  deleteSaveState,
+  getSaveState,
+  listSaveStates,
+  putSaveState,
+  type SaveStateRecord,
+} from './store/saveState'
 export {
   PAD_BUTTON_LIST,
   PadButton,
