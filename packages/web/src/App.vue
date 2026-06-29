@@ -339,4 +339,42 @@ textarea,
 .link-btn:hover {
   text-decoration: underline;
 }
+
+/* 触屏设备:footer 的键盘按键提示对手机无用,直接隐藏让出垂直空间。 */
+@media (pointer: coarse) {
+  .footer {
+    display: none;
+  }
+}
+
+/* 手机横屏(短高度):压缩工具栏、去掉 stage padding,把画面顶到最大。
+   NES 比例接近 4:3,横屏下限制因素是高度,省下的每一像素都直接转成画面宽度。 */
+@media (orientation: landscape) and (max-height: 540px) {
+  .toolbar {
+    padding: 4px 8px;
+    gap: 4px;
+  }
+  .title {
+    display: none;
+  }
+  .btn {
+    padding: 4px 10px;
+    font-size: 13px;
+  }
+  .btn.icon {
+    padding: 4px 7px;
+    font-size: 14px;
+  }
+  /* 触屏上 kbd 快捷键提示无意义,且占宽。 */
+  .btn kbd {
+    display: none;
+  }
+  .stage {
+    padding: 0;
+  }
+  .hint {
+    bottom: 4px;
+    font-size: 12px;
+  }
+}
 </style>
