@@ -126,6 +126,8 @@ function onSystemAction(action: string) {
     if (romName.value) togglePause()
   } else if (action === 'open-library') {
     storeOpen.value = true
+  } else if (action === 'open-saves') {
+    savesOpen.value = true
   }
 }
 </script>
@@ -149,7 +151,9 @@ function onSystemAction(action: string) {
         <button class="menu-item" :disabled="!romName" @click="newSave">
           新建存档 <kbd>{{ modLabel }}+N</kbd>
         </button>
-        <button class="menu-item" @click="savesOpen = true">存档列表</button>
+        <button class="menu-item" @click="savesOpen = true">
+          存档列表 <kbd>{{ modLabel }}+A</kbd>
+        </button>
       </ToolbarMenu>
       <button
         class="btn icon"

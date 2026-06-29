@@ -7,6 +7,7 @@ import {
   deleteSaveStateByKey,
   listAllSaveStates,
   renameSaveState,
+  saveKindOf,
   type SaveStateRecord,
 } from '../store/saveState'
 
@@ -83,6 +84,10 @@ const filteredRecords = computed(() => {
 
 function saveLabel(record: SaveStateRecord): string {
   return record.label?.trim() || record.name
+}
+
+function isQuickSave(record: SaveStateRecord): boolean {
+  return saveKindOf(record) === 'quick'
 }
 
 async function loadRecord(record: SaveStateRecord) {
@@ -211,6 +216,13 @@ function formatError(err: unknown): string {
         <article v-for="record in filteredRecords" :key="record.key" class="save-card">
           <div class="save-main">
             <div class="save-title-row">
+              <span
+                class="badge"
+                :class="isQuickSave(record) ? 'badge-quick' : 'badge-normal'"
+                :title="isQuickSave(record) ? '快速存档(S 键覆盖式单槽)' : '普通存档'"
+              >
+                {{ isQuickSave(record) ? '快速' : '普通' }}
+              </span>
               <input
                 v-if="editingKey === record.key"
                 v-model="editingText"
@@ -376,6 +388,24 @@ function formatError(err: unknown): string {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+.badge {
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+.badge-quick {
+  background: rgba(214, 179, 106, 0.18);
+  color: #e3c178;
+  border: 1px solid rgba(214, 179, 106, 0.4);
+}
+.badge-normal {
+  background: rgba(47, 111, 159, 0.18);
+  color: #8fc4ec;
+  border: 1px solid rgba(47, 111, 159, 0.4);
 }
 .save-title-row h3 {
   min-width: 0;

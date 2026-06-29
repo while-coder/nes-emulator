@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button, NesRunner, type SaveState } from '../emulator/runner'
-import { createSaveState, getSaveState, listSaveStates, putSaveState } from '../store/saveState'
+import {
+  createSaveState,
+  getSaveState,
+  listSaveStates,
+  putSaveState,
+  QUICK_SLOT,
+} from '../store/saveState'
 import {
   buildCodeToButton,
   buildPadToButton,
@@ -33,7 +39,6 @@ const frameRef = ref<HTMLDivElement | null>(null)
 let runner: NesRunner | null = null
 
 // 快速存档/读档:单槽,按 romKey 绑定。toast 显示一行短暂的操作反馈。
-const QUICK_SLOT = 'quick'
 const toast = ref('')
 let toastTimer = 0
 function showToast(msg: string) {
@@ -43,6 +48,14 @@ function showToast(msg: string) {
     toast.value = ''
     toastTimer = 0
   }, 1600)
+}
+
+// 把存/读档异常压成一行可读文案,优先用 DOMException 的 name(如 QuotaExceededError、
+// DataCloneError、InvalidStateError),便于在 toast 上直接看出失败类别。
+function describeError(err: unknown): string {
+  if (err instanceof DOMException) return err.name
+  if (err instanceof Error) return err.message || err.name
+  return String(err)
 }
 
 async function quickSave() {
@@ -58,8 +71,9 @@ async function quickSave() {
   try {
     await putSaveState(props.romKey, QUICK_SLOT, props.romName ?? props.romKey, state)
     showToast('已存档')
-  } catch {
-    showToast('存档失败')
+  } catch (err) {
+    console.error('[NES] 快速存档失败', err)
+    showToast(`存档失败: ${describeError(err)}`)
   }
 }
 
@@ -79,8 +93,9 @@ async function quickNewSave() {
     const count = list.filter((r) => r.slot !== QUICK_SLOT).length
     await createSaveState(props.romKey, props.romName ?? props.romKey, `存档 ${count + 1}`, state)
     showToast('已新建存档')
-  } catch {
-    showToast('存档失败')
+  } catch (err) {
+    console.error('[NES] 新建存档失败', err)
+    showToast(`存档失败: ${describeError(err)}`)
   }
 }
 
@@ -92,8 +107,9 @@ async function quickLoad() {
   let record
   try {
     record = await getSaveState(props.romKey, QUICK_SLOT)
-  } catch {
-    showToast('读档失败')
+  } catch (err) {
+    console.error('[NES] 读档失败', err)
+    showToast(`读档失败: ${describeError(err)}`)
     return
   }
   if (!record) {
@@ -132,7 +148,7 @@ function onKeyDown(e: KeyboardEvent) {
   if (isTypingTarget(e)) return // 正在输入框打字,不抢按键
   if (props.inputLocked) return // 模态接管,游戏不收输入
   // 应用级快捷键:修饰键由 modifier 决定(桌面 Ctrl / 浏览器 Shift,避开浏览器占用键)。
-  // S=存档,L=读档,N=新建存档,G=游戏库,P=暂停,F=全屏;Esc 也可暂停。
+  // S=存档,L=读档,N=新建存档,A=存档列表,G=游戏库,P=暂停,F=全屏;Esc 也可暂停。
   const modActive = props.modifier === 'ctrl' ? e.ctrlKey : e.shiftKey
   if (modActive) {
     switch (e.code) {
@@ -147,6 +163,10 @@ function onKeyDown(e: KeyboardEvent) {
       case 'KeyN':
         e.preventDefault()
         if (!e.repeat) void quickNewSave()
+        return
+      case 'KeyA':
+        e.preventDefault()
+        if (!e.repeat) emit('systemAction', 'open-saves')
         return
       case 'KeyG':
         e.preventDefault()

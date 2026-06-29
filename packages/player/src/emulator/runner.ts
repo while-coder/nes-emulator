@@ -282,7 +282,10 @@ export class NesRunner {
   /** 导出当前引擎状态为存档快照;未载入 ROM 时返回 null。 */
   saveState(): SaveState | null {
     if (!this.nes) return null
-    return this.nes.toJSON()
+    // jsnes 的 toJSON 仅保证 JSON 可序列化(为 JSON.stringify 设计),其产物里可能含有
+    // 结构化克隆(IndexedDB put)拒绝的值,直接入库会抛 DataCloneError。走一次 JSON 往返
+    // 净化成纯数据,既能入库又能被 fromJSON 正确恢复(这正是 jsnes 的标准序列化路径)。
+    return JSON.parse(JSON.stringify(this.nes.toJSON())) as SaveState
   }
 
   /**

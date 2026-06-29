@@ -6,17 +6,34 @@
  */
 import type { SaveState } from '../emulator/runner'
 
+/**
+ * 存档类型:
+ * - 'quick' 快速存档,S 键覆盖式写入,每个游戏只占一个固定槽。
+ * - 'normal' 普通存档,新建时追加一条独立槽,可保留多份。
+ */
+export type SaveKind = 'quick' | 'normal'
+
 export type SaveStateRecord = {
   /** 主键:`${romKey}:${slot}`。 */
   key: string
   romKey: string
   slot: string
+  /** 存档类型;旧记录无此字段时由 saveKindOf 按 slot 回退推断。 */
+  kind?: SaveKind
   /** 存档时的 ROM 显示名,供存档列表按游戏分组/过滤展示。 */
   name: string
   /** 用户可编辑的存档名;旧记录无此字段时展示层回退到 name。 */
   label?: string
   state: SaveState
   savedAt: number
+}
+
+/** 快速存档固定占用的槽名(覆盖式单槽)。 */
+export const QUICK_SLOT = 'quick'
+
+/** 判定一条存档的类型;兼容没有 kind 字段的旧记录(按是否为快速槽推断)。 */
+export function saveKindOf(record: SaveStateRecord): SaveKind {
+  return record.kind ?? (record.slot === QUICK_SLOT ? 'quick' : 'normal')
 }
 
 const DB_NAME = 'nes-save-states'
@@ -42,6 +59,7 @@ export async function putSaveState(
   name: string,
   state: SaveState,
   label?: string,
+  kind: SaveKind = 'quick',
 ): Promise<void> {
   const db = await openDb()
   const tx = db.transaction(STORE_NAME, 'readwrite')
@@ -50,6 +68,7 @@ export async function putSaveState(
     key: recordKey(romKey, slot),
     romKey,
     slot,
+    kind,
     name,
     label,
     state,
@@ -74,6 +93,7 @@ export async function createSaveState(
     key: recordKey(romKey, slot),
     romKey,
     slot,
+    kind: 'normal',
     name,
     label,
     state,
@@ -148,7 +168,7 @@ export async function deleteSaveState(romKey: string, slot: string): Promise<voi
 
 function openDb(): Promise<IDBDatabase> {
   if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
+  dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const db = request.result
@@ -156,8 +176,24 @@ function openDb(): Promise<IDBDatabase> {
         db.createObjectStore(STORE_NAME, { keyPath: 'key' })
       }
     }
-    request.onsuccess = () => resolve(request.result)
+    request.onsuccess = () => {
+      const db = request.result
+      // 连接被外部(如 DevTools 清库、其他标签升级版本)关闭后,缓存的句柄会失效,
+      // 后续事务全部抛 InvalidStateError。丢弃缓存,让下次 openDb 重新打开。
+      db.onclose = () => {
+        if (dbPromise) dbPromise = null
+      }
+      db.onversionchange = () => {
+        db.close()
+        if (dbPromise) dbPromise = null
+      }
+      resolve(db)
+    }
     request.onerror = () => reject(request.error ?? new Error('无法打开存档库'))
+  })
+  // 打开失败时不要把 rejected promise 永久缓存,否则之后每次存档都复用它而必失败。
+  dbPromise.catch(() => {
+    dbPromise = null
   })
   return dbPromise
 }

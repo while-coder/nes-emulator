@@ -25,6 +25,7 @@ const KEYBOARD_SHORTCUTS = computed(() => [
   { keys: `${mod.value}+S`, desc: '快速存档(单槽,按游戏绑定)' },
   { keys: `${mod.value}+L`, desc: '快速读档' },
   { keys: `${mod.value}+N`, desc: '新建存档(追加到存档列表)' },
+  { keys: `${mod.value}+A`, desc: '打开存档列表' },
   { keys: `${mod.value}+G`, desc: '打开游戏库' },
   { keys: `${mod.value}+F`, desc: '全屏' },
   { keys: `${mod.value}+P / Esc`, desc: '暂停 / 继续' },
