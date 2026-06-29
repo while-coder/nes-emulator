@@ -7,6 +7,8 @@ import {
   RomStorePanel,
   SaveStatePanel,
   SettingsModal,
+  ShortcutsPanel,
+  ToolbarMenu,
   settings,
   sha256Hex,
   type SaveState,
@@ -14,7 +16,8 @@ import {
 import { isTauri, pickRomFile, storage } from './emulator/platform'
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)
-const romName = ref<string | null>(storage.getLastRom())
+// 启动时不恢复上次 ROM 名:仅有名字而引擎未载入会让按钮误显示为可用,故初始为未载入。
+const romName = ref<string | null>(null)
 // 当前卡带的稳定标识(sha256),把存档绑定到对应游戏;读档时据此找回 ROM。
 const romKey = ref<string | null>(null)
 const audioOn = ref(true)
@@ -23,6 +26,16 @@ const paused = ref(false)
 const settingsOpen = ref(false)
 const storeOpen = ref(false)
 const savesOpen = ref(false)
+const helpOpen = ref(false)
+
+// 模态(游戏库/设置/存档列表/快捷键)打开时锁住游戏输入,改由模态接管手柄/键盘导航。
+const inputLocked = computed(
+  () => storeOpen.value || settingsOpen.value || savesOpen.value || helpOpen.value,
+)
+
+// 快捷键修饰键:桌面(Tauri)用 Ctrl,浏览器用 Shift(避开 Ctrl+L/N 等浏览器冲突)。
+const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
+const modLabel = isTauri ? 'Ctrl' : 'Shift'
 
 // 按键说明:展示玩家1的键盘映射,跟随设置动态生成,改键后自动同步。
 const keyHint = computed(() => {
@@ -58,6 +71,10 @@ function saveState() {
 }
 function loadState() {
   screen.value?.quickLoad()
+}
+// 快速新建存档:往存档列表追加一条(区别于覆盖式的快速存档)。
+function newSave() {
+  screen.value?.quickNewSave()
 }
 
 // 从存档列表读档:带 bytes 表示需先载入对应游戏,然后把状态套用到引擎。
@@ -102,6 +119,15 @@ function toggleAudio() {
   audioOn.value = !audioOn.value
   screen.value?.setAudioEnabled(audioOn.value)
 }
+
+// 来自 NesScreen 的应用级快捷键(手柄空闲键 / 键盘 F1·F3):暂停-继续、打开游戏库。
+function onSystemAction(action: string) {
+  if (action === 'toggle-pause') {
+    if (romName.value) togglePause()
+  } else if (action === 'open-library') {
+    storeOpen.value = true
+  }
+}
 </script>
 
 <template>
@@ -112,18 +138,34 @@ function toggleAudio() {
       <button class="btn" :disabled="loading" @click="openRom">
         {{ loading ? '载入中…' : '打开 ROM' }}
       </button>
-      <button class="btn" @click="storeOpen = true">ROM 库</button>
-      <button class="btn" :disabled="!romName" @click="togglePause">
-        {{ paused ? '继续' : '暂停' }}
+      <button class="btn" @click="storeOpen = true">ROM 库 <kbd>{{ modLabel }}+G</kbd></button>
+      <ToolbarMenu label="存档">
+        <button class="menu-item" :disabled="!romName" @click="saveState">
+          快速存档 <kbd>{{ modLabel }}+S</kbd>
+        </button>
+        <button class="menu-item" :disabled="!romName" @click="loadState">
+          快速读档 <kbd>{{ modLabel }}+L</kbd>
+        </button>
+        <button class="menu-item" :disabled="!romName" @click="newSave">
+          新建存档 <kbd>{{ modLabel }}+N</kbd>
+        </button>
+        <button class="menu-item" @click="savesOpen = true">存档列表</button>
+      </ToolbarMenu>
+      <button
+        class="btn icon"
+        :disabled="!romName"
+        :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
+        @click="togglePause"
+      >
+        {{ paused ? '▶' : '⏸' }}
       </button>
-      <button class="btn" :disabled="!romName" @click="stopRom">中止</button>
-      <button class="btn" :disabled="!romName" @click="reset">复位</button>
-      <button class="btn" :disabled="!romName" @click="saveState">存档</button>
-      <button class="btn" :disabled="!romName" @click="loadState">读档</button>
-      <button class="btn" @click="savesOpen = true">存档列表</button>
-      <button class="btn" @click="toggleFullscreen">全屏</button>
-      <button class="btn" @click="toggleAudio">{{ audioOn ? '🔊' : '🔇' }}</button>
-      <button class="btn" @click="settingsOpen = true">⚙ 设置</button>
+      <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
+      <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
+      <button class="btn icon" @click="toggleFullscreen" :title="`全屏 (${modLabel}+F)`">⛶</button>
+      <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
+        {{ audioOn ? '🔊' : '🔇' }}
+      </button>
+      <button class="btn icon" title="设置" @click="settingsOpen = true">⚙</button>
     </header>
 
     <SettingsModal v-model:open="settingsOpen" />
@@ -132,14 +174,23 @@ function toggleAudio() {
       @load="(payload) => loadRomBytes(payload.name, payload.bytes, payload.key)"
     />
     <SaveStatePanel v-model:open="savesOpen" :current-rom-key="romKey" @load="onLoadSave" />
+    <ShortcutsPanel v-model:open="helpOpen" :modifier="modKey" />
 
     <main class="stage">
-      <NesScreen ref="screen" :rom-key="romKey" :rom-name="romName" />
+      <NesScreen
+        ref="screen"
+        :input-locked="inputLocked"
+        :modifier="modKey"
+        :rom-key="romKey"
+        :rom-name="romName"
+        @system-action="onSystemAction"
+      />
       <p v-if="!romName" class="hint">点击「打开 ROM」选择一个 .nes 文件开始游戏</p>
     </main>
 
     <footer class="footer">
       <span class="keys">键盘 {{ keyHint }}</span>
+      <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
       <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri 模式' : 'Web 模式' }}</span>
     </footer>
   </div>
@@ -208,6 +259,22 @@ body {
   opacity: 0.5;
   cursor: default;
 }
+.btn kbd {
+  margin-left: 4px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 11px;
+  color: #bbb;
+}
+/* 图标按钮:次要操作(中止/复位/全屏/音频/设置),方形紧凑,名称见悬停 title。 */
+.btn.icon {
+  padding: 6px 9px;
+  font-size: 15px;
+  line-height: 1;
+}
 .stage {
   flex: 1;
   min-height: 0;
@@ -242,5 +309,17 @@ body {
 }
 .footer .meta {
   color: #666;
+  margin-left: auto;
+}
+.link-btn {
+  border: none;
+  background: transparent;
+  color: #6ab0ff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0;
+}
+.link-btn:hover {
+  text-decoration: underline;
 }
 </style>

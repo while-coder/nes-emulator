@@ -19,6 +19,8 @@ import {
 // romKey/romName:当前载入卡带的稳定标识与显示名,用于把存档绑定到对应游戏。
 const props = defineProps<{
   inputLocked?: boolean
+  /** 应用级快捷键修饰键:桌面(Tauri)传 'ctrl',浏览器传 'shift'(默认)。 */
+  modifier?: 'ctrl' | 'shift'
   romKey?: string | null
   romName?: string | null
 }>()
@@ -114,28 +116,55 @@ const codeToAction = computed(() => {
   return out
 })
 
+// 焦点在输入框/可编辑元素时用户正在打字:放行按键给输入,不触发任何快捷键或游戏键。
+function isTypingTarget(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement | null
+  if (!t) return false
+  return (
+    t.tagName === 'INPUT' ||
+    t.tagName === 'TEXTAREA' ||
+    t.tagName === 'SELECT' ||
+    t.isContentEditable
+  )
+}
+
 function onKeyDown(e: KeyboardEvent) {
+  if (isTypingTarget(e)) return // 正在输入框打字,不抢按键
   if (props.inputLocked) return // 模态接管,游戏不收输入
-  // 应用级快捷键(避开游戏占用的键):Esc=暂停/继续,反引号=打开游戏库。
+  // 应用级快捷键:修饰键由 modifier 决定(桌面 Ctrl / 浏览器 Shift,避开浏览器占用键)。
+  // S=存档,L=读档,N=新建存档,G=游戏库,P=暂停,F=全屏;Esc 也可暂停。
+  const modActive = props.modifier === 'ctrl' ? e.ctrlKey : e.shiftKey
+  if (modActive) {
+    switch (e.code) {
+      case 'KeyS':
+        e.preventDefault()
+        if (!e.repeat) void quickSave()
+        return
+      case 'KeyL':
+        e.preventDefault()
+        if (!e.repeat) void quickLoad()
+        return
+      case 'KeyN':
+        e.preventDefault()
+        if (!e.repeat) void quickNewSave()
+        return
+      case 'KeyG':
+        e.preventDefault()
+        if (!e.repeat) emit('systemAction', 'open-library')
+        return
+      case 'KeyP':
+        e.preventDefault()
+        if (!e.repeat) emit('systemAction', 'toggle-pause')
+        return
+      case 'KeyF':
+        e.preventDefault()
+        if (!e.repeat) toggleFullscreen()
+        return
+    }
+  }
   if (e.code === 'Escape') {
     e.preventDefault()
     if (!e.repeat) emit('systemAction', 'toggle-pause')
-    return
-  }
-  if (e.code === 'Backquote') {
-    e.preventDefault()
-    if (!e.repeat) emit('systemAction', 'open-library')
-    return
-  }
-  // F2=快速存档,F4=快速读档(单槽,按 ROM 绑定)。
-  if (e.code === 'F2') {
-    e.preventDefault()
-    if (!e.repeat) void quickSave()
-    return
-  }
-  if (e.code === 'F4') {
-    e.preventDefault()
-    if (!e.repeat) void quickLoad()
     return
   }
   const a = codeToAction.value[e.code]
@@ -144,6 +173,7 @@ function onKeyDown(e: KeyboardEvent) {
   pressPad(a.player, a.pad)
 }
 function onKeyUp(e: KeyboardEvent) {
+  if (isTypingTarget(e)) return
   if (props.inputLocked) return
   const a = codeToAction.value[e.code]
   if (!a) return

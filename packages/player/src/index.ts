@@ -2,6 +2,8 @@ export { default as NesScreen } from './components/NesScreen.vue'
 export { default as SettingsModal } from './components/SettingsModal.vue'
 export { default as RomStorePanel } from './components/RomStorePanel.vue'
 export { default as SaveStatePanel } from './components/SaveStatePanel.vue'
+export { default as ShortcutsPanel } from './components/ShortcutsPanel.vue'
+export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
 export { Button, NesRunner, SCREEN, type SaveState } from './emulator/runner'
 export {
   createSaveState,
