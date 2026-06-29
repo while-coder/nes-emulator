@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Button, NesRunner, type SaveState } from '../emulator/runner'
+import TouchControls from './TouchControls.vue'
 import {
   createSaveState,
   getSaveState,
@@ -362,21 +363,13 @@ function pollGamepads() {
   })
 }
 
-// 触屏虚拟手柄方向键(仅控制玩家1,单屏双人不现实)
-const PAD = [
-  { key: 'up', label: '▲', pad: PadButton.Up, cls: 'dpad-up' },
-  { key: 'down', label: '▼', pad: PadButton.Down, cls: 'dpad-down' },
-  { key: 'left', label: '◀', pad: PadButton.Left, cls: 'dpad-left' },
-  { key: 'right', label: '▶', pad: PadButton.Right, cls: 'dpad-right' },
-]
-
-function holdStart(e: Event, pad: number) {
-  e.preventDefault()
+// 触屏虚拟手柄(TouchControls)回调:仅控制玩家1(单屏双人不现实)。
+// 首次按下顺带解锁音频(iOS 要求音频在用户手势内启动)。
+function onTouchPress(pad: number) {
   runner?.resumeAudio()
   pressPad(0, pad)
 }
-function holdEnd(e: Event, pad: number) {
-  e.preventDefault()
+function onTouchRelease(pad: number) {
   releasePad(0, pad)
 }
 
@@ -391,7 +384,6 @@ const ASPECT_RATIO: Record<Aspect, number> = {
 const canvasStyle = computed(() => ({
   imageRendering: settings.display.smoothing ? ('auto' as const) : ('pixelated' as const),
 }))
-const touchPadClass = computed(() => settings.misc.touchPad)
 
 /** 量测容器,按宽高比与整数倍缩放算出画面盒子尺寸并写入 frame。 */
 function applyDisplaySize() {
@@ -536,83 +528,8 @@ defineExpose({
       </transition>
     </div>
 
-    <!-- 触屏手柄:小霸王布局(左方向键、中 SELECT/START、右田字四键) -->
-    <div class="touch-pad" :class="touchPadClass">
-      <div class="dpad">
-        <button
-          v-for="d in PAD"
-          :key="d.key"
-          :class="['pad-btn', d.cls]"
-          @pointerdown="holdStart($event, d.pad)"
-          @pointerup="holdEnd($event, d.pad)"
-          @pointerleave="holdEnd($event, d.pad)"
-          @contextmenu.prevent
-        >
-          {{ d.label }}
-        </button>
-      </div>
-
-      <div class="se">
-        <button
-          class="pad-btn small"
-          @pointerdown="holdStart($event, PadButton.Select)"
-          @pointerup="holdEnd($event, PadButton.Select)"
-          @pointerleave="holdEnd($event, PadButton.Select)"
-          @contextmenu.prevent
-        >
-          SELECT
-        </button>
-        <button
-          class="pad-btn small"
-          @pointerdown="holdStart($event, PadButton.Start)"
-          @pointerup="holdEnd($event, PadButton.Start)"
-          @pointerleave="holdEnd($event, PadButton.Start)"
-          @contextmenu.prevent
-        >
-          START
-        </button>
-      </div>
-
-      <!-- 田字四键:上排连发(连B/连A),下排主键(B/A) -->
-      <div class="actions">
-        <button
-          class="pad-btn turbo"
-          @pointerdown="holdStart($event, PadButton.TurboB)"
-          @pointerup="holdEnd($event, PadButton.TurboB)"
-          @pointerleave="holdEnd($event, PadButton.TurboB)"
-          @contextmenu.prevent
-        >
-          连B
-        </button>
-        <button
-          class="pad-btn turbo"
-          @pointerdown="holdStart($event, PadButton.TurboA)"
-          @pointerup="holdEnd($event, PadButton.TurboA)"
-          @pointerleave="holdEnd($event, PadButton.TurboA)"
-          @contextmenu.prevent
-        >
-          连A
-        </button>
-        <button
-          class="pad-btn ab b"
-          @pointerdown="holdStart($event, PadButton.B)"
-          @pointerup="holdEnd($event, PadButton.B)"
-          @pointerleave="holdEnd($event, PadButton.B)"
-          @contextmenu.prevent
-        >
-          B
-        </button>
-        <button
-          class="pad-btn ab a"
-          @pointerdown="holdStart($event, PadButton.A)"
-          @pointerup="holdEnd($event, PadButton.A)"
-          @pointerleave="holdEnd($event, PadButton.A)"
-          @contextmenu.prevent
-        >
-          A
-        </button>
-      </div>
-    </div>
+    <!-- 触屏虚拟手柄(经典分离式,支持斜向与多点触控) -->
+    <TouchControls @press="onTouchPress" @release="onTouchRelease" />
   </div>
 </template>
 
@@ -683,110 +600,5 @@ defineExpose({
 }
 .screen-wrap:fullscreen .frame {
   border-radius: 0;
-}
-.screen-wrap:fullscreen .touch-pad {
-  position: absolute;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 640px;
-}
-
-.touch-pad {
-  display: none;
-  width: 100%;
-  max-width: 560px;
-  align-items: center;
-  justify-content: space-between;
-  user-select: none;
-  touch-action: none;
-}
-.touch-pad.always {
-  display: flex;
-}
-.touch-pad.never {
-  display: none !important;
-}
-.pad-btn {
-  border: none;
-  background: #3a3a3a;
-  color: #eee;
-  border-radius: 8px;
-  font-size: 16px;
-}
-.pad-btn:active {
-  background: #5a5a5a;
-}
-.dpad {
-  position: relative;
-  width: 150px;
-  height: 150px;
-  flex: 0 0 auto;
-}
-.dpad .pad-btn {
-  position: absolute;
-  width: 50px;
-  height: 50px;
-}
-.dpad-up {
-  top: 0;
-  left: 50px;
-}
-.dpad-down {
-  bottom: 0;
-  left: 50px;
-}
-.dpad-left {
-  left: 0;
-  top: 50px;
-}
-.dpad-right {
-  right: 0;
-  top: 50px;
-}
-
-/* SELECT / START:居中并排的两枚长条键 */
-.se {
-  display: flex;
-  gap: 12px;
-  flex: 0 0 auto;
-}
-.se .small {
-  width: 72px;
-  height: 28px;
-  font-size: 11px;
-  border-radius: 14px;
-}
-
-/* 小霸王布局:右侧四键排成「田」字,上排连发(连B/连A),下排主键(B/A),
-   左列 B 系、右列 A 系上下对齐。 */
-.actions {
-  display: grid;
-  grid-template-columns: repeat(2, 64px);
-  grid-auto-rows: 64px;
-  gap: 10px 16px;
-  align-items: center;
-  justify-items: center;
-  flex: 0 0 auto;
-}
-.ab {
-  width: 64px;
-  height: 64px;
-  border-radius: 50%;
-  background: #c0392b;
-}
-.turbo {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
-  background: #d98324;
-  font-size: 13px;
-}
-
-/* auto 模式:触屏或窄屏时显示虚拟手柄 */
-@media (pointer: coarse), (max-width: 640px) {
-  .touch-pad.auto {
-    display: flex;
-  }
 }
 </style>
