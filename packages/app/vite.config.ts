@@ -9,6 +9,6 @@ export default defineConfig({
     strictPort: true,
   },
   build: {
-    target: 'esnext',
+    target: 'chrome74',
   },
 })
