@@ -10,7 +10,7 @@ export default defineConfig({
       // 自动注入 Service Worker 注册脚本,无需改 main.ts。
       injectRegister: 'auto',
       // public 下的图标纳入预缓存(它们不被构建引用)。
-      includeAssets: ['favicon.png', 'icon-512.png'],
+      includeAssets: ['favicon.png', 'pwa-256.png', 'icon-512.png'],
       manifest: {
         name: 'NES/FC 模拟器',
         short_name: 'NES',
@@ -23,8 +23,9 @@ export default defineConfig({
         // 相对路径,适配 GitHub Pages 子路径部署。
         start_url: '.',
         scope: '.',
+        // 声明尺寸必须与文件实际尺寸一致,否则浏览器忽略该图标,可能导致不可安装。
         icons: [
-          { src: 'icon-512.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'pwa-256.png', sizes: '256x256', type: 'image/png', purpose: 'any' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
           { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
