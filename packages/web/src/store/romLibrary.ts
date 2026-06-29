@@ -6,7 +6,12 @@ export type CachedRom = {
   bytes: Uint8Array
   size: number
   sha256?: string
+  genre?: string
+  publisher?: string
+  mapper?: number
+  tags?: string[]
   savedAt: number
+  lastPlayedAt?: number
 }
 
 const DB_NAME = 'nes-rom-library'
@@ -22,6 +27,15 @@ export async function listCachedRomKeys(): Promise<Set<string>> {
   const keys = await requestToPromise<IDBValidKey[]>(tx.objectStore(STORE_NAME).getAllKeys())
   await done
   return new Set(keys.filter((key): key is string => typeof key === 'string'))
+}
+
+export async function listCachedRoms(): Promise<CachedRom[]> {
+  const db = await openDb()
+  const tx = db.transaction(STORE_NAME, 'readonly')
+  const done = txDone(tx)
+  const roms = await requestToPromise<CachedRom[]>(tx.objectStore(STORE_NAME).getAll())
+  await done
+  return roms.sort((a, b) => (b.lastPlayedAt ?? b.savedAt) - (a.lastPlayedAt ?? a.savedAt))
 }
 
 export async function getCachedRom(key: string): Promise<CachedRom | null> {
@@ -43,10 +57,29 @@ export async function saveCachedRom(entry: RomEntry, bytes: Uint8Array): Promise
     bytes,
     size: bytes.byteLength,
     sha256: entry.sha256,
+    genre: entry.genre,
+    publisher: entry.publisher,
+    mapper: entry.mapper,
+    tags: entry.tags,
     savedAt: Date.now(),
   }
   await requestToPromise(tx.objectStore(STORE_NAME).put(record))
   await done
+}
+
+export async function touchCachedRom(key: string): Promise<number> {
+  const db = await openDb()
+  const tx = db.transaction(STORE_NAME, 'readwrite')
+  const done = txDone(tx)
+  const store = tx.objectStore(STORE_NAME)
+  const rom = await requestToPromise<CachedRom | undefined>(store.get(key))
+  const now = Date.now()
+  if (rom) {
+    rom.lastPlayedAt = now
+    await requestToPromise(store.put(rom))
+  }
+  await done
+  return now
 }
 
 export async function deleteCachedRom(key: string): Promise<void> {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { BUTTON_LIST, codeLabel, NesScreen, SettingsModal, settings } from '@nes-emulator/player'
+import { PAD_BUTTON_LIST, codeLabel, NesScreen, SettingsModal, settings } from '@nes-emulator/player'
 import { isTauri, pickRomFile, storage } from './emulator/platform'
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)
@@ -10,11 +10,13 @@ const loading = ref(false)
 const paused = ref(false)
 const settingsOpen = ref(false)
 
-const keyHint = computed(() =>
-  BUTTON_LIST.filter((i) => settings.keymap[i.btn])
-    .map((i) => `${i.label}=${codeLabel(settings.keymap[i.btn])}`)
-    .join(' · '),
-)
+// 按键说明:展示玩家1的键盘映射,改键后自动同步。
+const keyHint = computed(() => {
+  const keymap = settings.players[0].keymap
+  return PAD_BUTTON_LIST.filter((i) => keymap[i.btn])
+    .map((i) => `${i.label}=${codeLabel(keymap[i.btn])}`)
+    .join(' · ')
+})
 
 async function openRom() {
   const picked = await pickRomFile()

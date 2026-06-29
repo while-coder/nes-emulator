@@ -20,20 +20,24 @@ const FRAME_MS = 1000 / TARGET_FPS
 export enum Button {
   Poweroff = 0,
   Reset = 1,
-  Select = 2,
-  Start = 3,
-  Joypad1A = 4,
-  Joypad1B = 5,
-  Joypad1Up = 6,
-  Joypad1Down = 7,
-  Joypad1Left = 8,
-  Joypad1Right = 9,
+  // 玩家1
+  Joypad1A = 2,
+  Joypad1B = 3,
+  Joypad1Up = 4,
+  Joypad1Down = 5,
+  Joypad1Left = 6,
+  Joypad1Right = 7,
+  Joypad1Start = 8,
+  Joypad1Select = 9,
+  // 玩家2
   Joypad2A = 10,
   Joypad2B = 11,
   Joypad2Up = 12,
   Joypad2Down = 13,
   Joypad2Left = 14,
   Joypad2Right = 15,
+  Joypad2Start = 16,
+  Joypad2Select = 17,
 }
 
 type ButtonBinding = {
@@ -42,20 +46,22 @@ type ButtonBinding = {
 }
 
 const BUTTON_BINDINGS: Partial<Record<Button, ButtonBinding>> = {
-  [Button.Select]: { controller: 1, button: Controller.BUTTON_SELECT },
-  [Button.Start]: { controller: 1, button: Controller.BUTTON_START },
   [Button.Joypad1A]: { controller: 1, button: Controller.BUTTON_A },
   [Button.Joypad1B]: { controller: 1, button: Controller.BUTTON_B },
   [Button.Joypad1Up]: { controller: 1, button: Controller.BUTTON_UP },
   [Button.Joypad1Down]: { controller: 1, button: Controller.BUTTON_DOWN },
   [Button.Joypad1Left]: { controller: 1, button: Controller.BUTTON_LEFT },
   [Button.Joypad1Right]: { controller: 1, button: Controller.BUTTON_RIGHT },
+  [Button.Joypad1Start]: { controller: 1, button: Controller.BUTTON_START },
+  [Button.Joypad1Select]: { controller: 1, button: Controller.BUTTON_SELECT },
   [Button.Joypad2A]: { controller: 2, button: Controller.BUTTON_A },
   [Button.Joypad2B]: { controller: 2, button: Controller.BUTTON_B },
   [Button.Joypad2Up]: { controller: 2, button: Controller.BUTTON_UP },
   [Button.Joypad2Down]: { controller: 2, button: Controller.BUTTON_DOWN },
   [Button.Joypad2Left]: { controller: 2, button: Controller.BUTTON_LEFT },
   [Button.Joypad2Right]: { controller: 2, button: Controller.BUTTON_RIGHT },
+  [Button.Joypad2Start]: { controller: 2, button: Controller.BUTTON_START },
+  [Button.Joypad2Select]: { controller: 2, button: Controller.BUTTON_SELECT },
 }
 
 export class NesRunner {
@@ -131,13 +137,9 @@ export class NesRunner {
 
   private renderFrame(frameBuffer: Uint32Array): void {
     for (let i = 0; i < PIXELS_LEN; i++) {
-      // jsnes 提供 0xRRGGBB;ImageData 在小端机器上可用 0xAABBGGRR 写入。
-      const color = frameBuffer[i]
-      this.frame32[i] =
-        0xff000000 |
-        ((color & 0xff0000) >> 16) |
-        (color & 0x00ff00) |
-        ((color & 0x0000ff) << 16)
+      // jsnes 输出的像素已是 NES BGR(即小端 ABGR 的低 24 位),
+      // 直接补上不透明 alpha 即可写入 ImageData,不可再交换 R/B。
+      this.frame32[i] = 0xff000000 | frameBuffer[i]
     }
     this.image.data.set(this.frame8)
     this.ctx.putImageData(this.image, 0, 0)

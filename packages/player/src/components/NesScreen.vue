@@ -6,9 +6,10 @@ import {
   buildPadToButton,
   isPadSignalActive,
   isTurbo,
+  PadButton,
+  padmapFor,
+  runnerButton,
   settings,
-  TURBO_A,
-  TURBO_B,
   TURBO_TARGET,
   type Aspect,
 } from '../emulator/settings'
@@ -21,28 +22,62 @@ let runner: NesRunner | null = null
 const NATIVE_W = 256
 const NATIVE_H = 240
 
-// 物理键盘映射(用 KeyboardEvent.code,避免输入法/布局影响),由设置派生。
-const codeToButton = computed(() => buildCodeToButton(settings.keymap))
+// 键盘 -> (玩家,逻辑按钮):合并两玩家 keymap,冲突时后者(玩家2)覆盖。
+const codeToAction = computed(() => {
+  const out: Record<string, { player: number; pad: number }> = {}
+  settings.players.forEach((p, pi) => {
+    const map = buildCodeToButton(p.keymap)
+    for (const code in map) out[code] = { player: pi, pad: map[code] }
+  })
+  return out
+})
 
 function onKeyDown(e: KeyboardEvent) {
-  const id = codeToButton.value[e.code]
-  if (id === undefined) return
+  const a = codeToAction.value[e.code]
+  if (!a) return
   e.preventDefault()
-  if (isTurbo(id)) turboStart(id)
-  else runner?.press(id as Button)
+  pressPad(a.player, a.pad)
 }
 function onKeyUp(e: KeyboardEvent) {
-  const id = codeToButton.value[e.code]
-  if (id === undefined) return
+  const a = codeToAction.value[e.code]
+  if (!a) return
   e.preventDefault()
-  if (isTurbo(id)) turboEnd(id)
-  else runner?.release(id as Button)
+  releasePad(a.player, a.pad)
+}
+
+// 统一输入入口:键盘/手柄/触屏都经此派发;连发键转交 turbo 逻辑,其余直达引擎。
+function pressPad(player: number, pad: number) {
+  if (isTurbo(pad)) {
+    turboStart(player, pad)
+  } else {
+    const btn = runnerButton(player, pad)
+    if (btn !== null) runner?.press(btn)
+  }
+}
+function releasePad(player: number, pad: number) {
+  if (isTurbo(pad)) {
+    turboEnd(player, pad)
+  } else {
+    const btn = runnerButton(player, pad)
+    if (btn !== null) runner?.release(btn)
+  }
 }
 
 // ===== 连发(Turbo):引擎无此功能,前端定时反复 press/release 模拟 =====
-const activeTurbo = new Set<number>()
-const turboPressed = new Map<number, boolean>()
+// 以 `${player}:${pad}` 为键,双玩家各自独立连发。
+const activeTurbo = new Set<string>()
+const turboPressed = new Map<string, boolean>()
 let turboTimer = 0
+
+function turboKey(player: number, pad: number): string {
+  return `${player}:${pad}`
+}
+// 连发键实际反复触发的引擎按钮:经 TURBO_TARGET 转成 A/B 再按玩家路由。
+function turboTargetButton(player: number, pad: number): Button | null {
+  const target = TURBO_TARGET[pad]
+  if (target === undefined) return null
+  return runnerButton(player, target)
+}
 
 function turboIntervalMs(): number {
   const hz = settings.misc.turboHz > 0 ? settings.misc.turboHz : 16
@@ -50,28 +85,33 @@ function turboIntervalMs(): number {
   return Math.max(1, Math.round(1000 / (hz * 2)))
 }
 function turboTick() {
-  activeTurbo.forEach((id) => {
-    const target = TURBO_TARGET[id]
-    const next = !turboPressed.get(id)
-    turboPressed.set(id, next)
-    if (next) runner?.press(target)
-    else runner?.release(target)
+  activeTurbo.forEach((key) => {
+    const [player, pad] = key.split(':').map(Number)
+    const btn = turboTargetButton(player, pad)
+    if (btn === null) return
+    const next = !turboPressed.get(key)
+    turboPressed.set(key, next)
+    if (next) runner?.press(btn)
+    else runner?.release(btn)
   })
 }
 function ensureTurboTimer() {
   if (turboTimer || activeTurbo.size === 0) return
   turboTimer = window.setInterval(turboTick, turboIntervalMs())
 }
-function turboStart(id: number) {
-  if (activeTurbo.has(id)) return // 键盘自动重复时幂等
-  activeTurbo.add(id)
+function turboStart(player: number, pad: number) {
+  const key = turboKey(player, pad)
+  if (activeTurbo.has(key)) return // 键盘自动重复时幂等
+  activeTurbo.add(key)
   ensureTurboTimer()
 }
-function turboEnd(id: number) {
-  if (!activeTurbo.has(id)) return
-  activeTurbo.delete(id)
-  turboPressed.set(id, false)
-  runner?.release(TURBO_TARGET[id])
+function turboEnd(player: number, pad: number) {
+  const key = turboKey(player, pad)
+  if (!activeTurbo.has(key)) return
+  activeTurbo.delete(key)
+  turboPressed.set(key, false)
+  const btn = turboTargetButton(player, pad)
+  if (btn !== null) runner?.release(btn)
   if (activeTurbo.size === 0 && turboTimer) {
     clearInterval(turboTimer)
     turboTimer = 0
@@ -90,63 +130,52 @@ watch(
 )
 
 // ===== 实体手柄(Gamepad API,USB/蓝牙皆通过此接口)=====
-// 浏览器不派发手柄事件,需每帧轮询 navigator.getGamepads() 读取状态;
+// 浏览器不派发手柄事件,需每帧轮询 navigator.getGamepads() 读取状态。
+// 每玩家只读其绑定的 gamepadIndex 对应手柄,并按该手柄型号(id)的映射派发;
 // 与键盘一样按边沿(本帧 active 集合相对上一帧的增减)触发 press/release。
-const padToButton = computed(() => buildPadToButton(settings.padmap))
 let padRaf = 0
-let padActive = new Set<number>() // 上一帧手柄按下的按钮 id 集合
+const padActive: Set<number>[] = [new Set<number>(), new Set<number>()]
 
 function pollGamepads() {
   padRaf = requestAnimationFrame(pollGamepads)
   if (!runner) return
   const pads = navigator.getGamepads ? navigator.getGamepads() : []
-  const map = padToButton.value
-  // 聚合所有已连接手柄:任一手柄触发某标识即视为该按钮按下。
-  const now = new Set<number>()
-  for (const pad of pads) {
-    if (!pad) continue
-    for (const sig in map) {
-      if (isPadSignalActive(pad, sig)) now.add(map[sig])
+  settings.players.forEach((p, pi) => {
+    const pad = p.gamepadIndex !== null ? pads[p.gamepadIndex] : null
+    const now = new Set<number>()
+    if (pad) {
+      const map = buildPadToButton(padmapFor(pad.id))
+      for (const sig in map) {
+        if (isPadSignalActive(pad, sig)) now.add(map[sig])
+      }
     }
-  }
-  now.forEach((id) => {
-    if (padActive.has(id)) return // 仍按住,幂等
-    if (isTurbo(id)) turboStart(id)
-    else runner?.press(id as Button)
+    const prev = padActive[pi] ?? new Set<number>()
+    now.forEach((pb) => {
+      if (!prev.has(pb)) pressPad(pi, pb) // 新按下
+    })
+    prev.forEach((pb) => {
+      if (!now.has(pb)) releasePad(pi, pb) // 已松开
+    })
+    padActive[pi] = now
   })
-  padActive.forEach((id) => {
-    if (now.has(id)) return
-    if (isTurbo(id)) turboEnd(id)
-    else runner?.release(id as Button)
-  })
-  padActive = now
 }
 
-// 触屏虚拟手柄方向键
+// 触屏虚拟手柄方向键(仅控制玩家1,单屏双人不现实)
 const PAD = [
-  { key: 'up', label: '▲', btn: Button.Joypad1Up, cls: 'dpad-up' },
-  { key: 'down', label: '▼', btn: Button.Joypad1Down, cls: 'dpad-down' },
-  { key: 'left', label: '◀', btn: Button.Joypad1Left, cls: 'dpad-left' },
-  { key: 'right', label: '▶', btn: Button.Joypad1Right, cls: 'dpad-right' },
+  { key: 'up', label: '▲', pad: PadButton.Up, cls: 'dpad-up' },
+  { key: 'down', label: '▼', pad: PadButton.Down, cls: 'dpad-down' },
+  { key: 'left', label: '◀', pad: PadButton.Left, cls: 'dpad-left' },
+  { key: 'right', label: '▶', pad: PadButton.Right, cls: 'dpad-right' },
 ]
 
-function holdStart(e: Event, btn: Button) {
+function holdStart(e: Event, pad: number) {
   e.preventDefault()
   runner?.resumeAudio()
-  runner?.press(btn)
+  pressPad(0, pad)
 }
-function holdEnd(e: Event, btn: Button) {
+function holdEnd(e: Event, pad: number) {
   e.preventDefault()
-  runner?.release(btn)
-}
-function turboHoldStart(e: Event, id: number) {
-  e.preventDefault()
-  runner?.resumeAudio()
-  turboStart(id)
-}
-function turboHoldEnd(e: Event, id: number) {
-  e.preventDefault()
-  turboEnd(id)
+  releasePad(0, pad)
 }
 
 // ===== 显示设置 =====
@@ -276,9 +305,9 @@ defineExpose({ loadRom, reset, setAudioEnabled, toggleFullscreen, pause, resume,
           v-for="d in PAD"
           :key="d.key"
           :class="['pad-btn', d.cls]"
-          @pointerdown="holdStart($event, d.btn)"
-          @pointerup="holdEnd($event, d.btn)"
-          @pointerleave="holdEnd($event, d.btn)"
+          @pointerdown="holdStart($event, d.pad)"
+          @pointerup="holdEnd($event, d.pad)"
+          @pointerleave="holdEnd($event, d.pad)"
           @contextmenu.prevent
         >
           {{ d.label }}
@@ -288,18 +317,18 @@ defineExpose({ loadRom, reset, setAudioEnabled, toggleFullscreen, pause, resume,
       <div class="se">
         <button
           class="pad-btn small"
-          @pointerdown="holdStart($event, Button.Select)"
-          @pointerup="holdEnd($event, Button.Select)"
-          @pointerleave="holdEnd($event, Button.Select)"
+          @pointerdown="holdStart($event, PadButton.Select)"
+          @pointerup="holdEnd($event, PadButton.Select)"
+          @pointerleave="holdEnd($event, PadButton.Select)"
           @contextmenu.prevent
         >
           SELECT
         </button>
         <button
           class="pad-btn small"
-          @pointerdown="holdStart($event, Button.Start)"
-          @pointerup="holdEnd($event, Button.Start)"
-          @pointerleave="holdEnd($event, Button.Start)"
+          @pointerdown="holdStart($event, PadButton.Start)"
+          @pointerup="holdEnd($event, PadButton.Start)"
+          @pointerleave="holdEnd($event, PadButton.Start)"
           @contextmenu.prevent
         >
           START
@@ -310,36 +339,36 @@ defineExpose({ loadRom, reset, setAudioEnabled, toggleFullscreen, pause, resume,
       <div class="actions">
         <button
           class="pad-btn turbo"
-          @pointerdown="turboHoldStart($event, TURBO_B)"
-          @pointerup="turboHoldEnd($event, TURBO_B)"
-          @pointerleave="turboHoldEnd($event, TURBO_B)"
+          @pointerdown="holdStart($event, PadButton.TurboB)"
+          @pointerup="holdEnd($event, PadButton.TurboB)"
+          @pointerleave="holdEnd($event, PadButton.TurboB)"
           @contextmenu.prevent
         >
           连B
         </button>
         <button
           class="pad-btn turbo"
-          @pointerdown="turboHoldStart($event, TURBO_A)"
-          @pointerup="turboHoldEnd($event, TURBO_A)"
-          @pointerleave="turboHoldEnd($event, TURBO_A)"
+          @pointerdown="holdStart($event, PadButton.TurboA)"
+          @pointerup="holdEnd($event, PadButton.TurboA)"
+          @pointerleave="holdEnd($event, PadButton.TurboA)"
           @contextmenu.prevent
         >
           连A
         </button>
         <button
           class="pad-btn ab b"
-          @pointerdown="holdStart($event, Button.Joypad1B)"
-          @pointerup="holdEnd($event, Button.Joypad1B)"
-          @pointerleave="holdEnd($event, Button.Joypad1B)"
+          @pointerdown="holdStart($event, PadButton.B)"
+          @pointerup="holdEnd($event, PadButton.B)"
+          @pointerleave="holdEnd($event, PadButton.B)"
           @contextmenu.prevent
         >
           B
         </button>
         <button
           class="pad-btn ab a"
-          @pointerdown="holdStart($event, Button.Joypad1A)"
-          @pointerup="holdEnd($event, Button.Joypad1A)"
-          @pointerleave="holdEnd($event, Button.Joypad1A)"
+          @pointerdown="holdStart($event, PadButton.A)"
+          @pointerup="holdEnd($event, PadButton.A)"
+          @pointerleave="holdEnd($event, PadButton.A)"
           @contextmenu.prevent
         >
           A

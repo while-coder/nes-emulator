@@ -1,9 +1,13 @@
 /**
- * 全局设置:按键映射、显示效果、音频、杂项。
+ * 全局设置:按键映射(分玩家)、显示效果、音频、杂项。
  *
  * 引擎本身不提供这些应用级配置项,所有设置都在前端实现并持久化到
  * localStorage。各组件直接 import 这里的 reactive 单例 `settings` 使用,
  * 修改后由 watch 自动保存。
+ *
+ * 多人:输入按玩家分组(`settings.players`,索引 0=玩家1、1=玩家2),每个玩家
+ * 各有键盘映射、手柄映射与绑定的实体手柄下标。逻辑按钮以 `PadButton` 表示
+ * (与玩家无关),运行时再经 `runnerButton(player, pad)` 路由到引擎对应手柄。
  */
 import { reactive, watch } from 'vue'
 import { Button } from './runner'
@@ -13,14 +17,43 @@ export type Aspect = '1:1' | '8:7' | '4:3'
 /** 触屏手柄显示策略。 */
 export type TouchPadMode = 'auto' | 'always' | 'never'
 
-export interface Settings {
-  /** 按钮 id -> 键盘 KeyboardEvent.code。id 含引擎 Button(0~7)与连发虚拟键。 */
+/** 逻辑手柄按钮(与玩家无关);设置与运行时输入派发均以此为单位。 */
+export enum PadButton {
+  Up = 0,
+  Down = 1,
+  Left = 2,
+  Right = 3,
+  A = 4,
+  B = 5,
+  TurboA = 6,
+  TurboB = 7,
+  Start = 8,
+  Select = 9,
+}
+
+/** 单个玩家的输入配置。键盘按玩家各一套;手柄映射不在此(按型号共享,见 gamepadProfiles)。 */
+export interface PlayerConfig {
+  /** PadButton -> KeyboardEvent.code。 */
   keymap: Record<number, string>
+  /** 绑定的实体手柄下标(navigator.getGamepads 索引);null=未绑定。 */
+  gamepadIndex: number | null
+}
+
+/**
+ * 手柄输入标识:`b{n}` 为 buttons[n];`a{n}+` / `a{n}-` 为 axes[n] 正/负方向。
+ * 即 PadButton -> 标识 的一套手柄映射。
+ */
+export type Padmap = Record<number, string>
+
+export interface Settings {
+  /** 玩家输入配置,索引 0=玩家1、1=玩家2。 */
+  players: PlayerConfig[]
   /**
-   * 按钮 id -> 手柄输入标识(与 keymap 并存,键盘/手柄可同时使用)。
-   * 标识格式:`b{n}` 为 buttons[n];`a{n}+` / `a{n}-` 为 axes[n] 正/负方向。
+   * 手柄映射按型号(gamepad.id)建档,全局共享:同型号手柄只需配一次,任意玩家
+   * 选用即复用;不同型号各自建档,自然解决按钮编号不一致。未建档的型号运行时
+   * 回退到标准布局(defaultPadmap),即插即用。
    */
-  padmap: Record<number, string>
+  gamepadProfiles: Record<string, Padmap>
   display: {
     /** true=双线性平滑,false=像素化(默认)。 */
     smoothing: boolean
@@ -45,31 +78,52 @@ export interface Settings {
   }
 }
 
-/** 连发(Turbo)虚拟按钮 id,取大数值避免与引擎 Button(0~7)冲突。 */
-export const TURBO_A = 100
-export const TURBO_B = 101
-/** 连发虚拟按钮 -> 实际触发的引擎按钮。 */
-export const TURBO_TARGET: Record<number, Button> = {
-  [TURBO_A]: Button.Joypad1A,
-  [TURBO_B]: Button.Joypad1B,
-}
-/** 判断一个按钮 id 是否为连发虚拟按钮。 */
+/** 支持的玩家数。 */
+export const PLAYER_COUNT = 2
+export const PLAYER_LABELS = ['玩家1', '玩家2']
+
+/** 判断一个逻辑按钮是否为连发(Turbo)虚拟键。 */
 export function isTurbo(id: number): boolean {
-  return id === TURBO_A || id === TURBO_B
+  return id === PadButton.TurboA || id === PadButton.TurboB
+}
+
+/** 连发虚拟按钮 -> 实际触发的逻辑按钮。 */
+export const TURBO_TARGET: Record<number, PadButton> = {
+  [PadButton.TurboA]: PadButton.A,
+  [PadButton.TurboB]: PadButton.B,
+}
+
+/** 逻辑按钮 -> 引擎按钮 [玩家1, 玩家2]。连发键不在此表(经 TURBO_TARGET 转换后再查)。 */
+const RUNNER_BUTTON: Partial<Record<PadButton, [Button, Button]>> = {
+  [PadButton.Up]: [Button.Joypad1Up, Button.Joypad2Up],
+  [PadButton.Down]: [Button.Joypad1Down, Button.Joypad2Down],
+  [PadButton.Left]: [Button.Joypad1Left, Button.Joypad2Left],
+  [PadButton.Right]: [Button.Joypad1Right, Button.Joypad2Right],
+  [PadButton.A]: [Button.Joypad1A, Button.Joypad2A],
+  [PadButton.B]: [Button.Joypad1B, Button.Joypad2B],
+  [PadButton.Start]: [Button.Joypad1Start, Button.Joypad2Start],
+  [PadButton.Select]: [Button.Joypad1Select, Button.Joypad2Select],
+}
+
+/** 把(玩家,逻辑按钮)路由到引擎按钮;连发键返回 null(需先经 TURBO_TARGET)。 */
+export function runnerButton(player: number, pad: PadButton): Button | null {
+  const pair = RUNNER_BUTTON[pad]
+  if (!pair) return null
+  return pair[player] ?? null
 }
 
 /** 可重绑的按钮顺序与中文名,供设置界面与按键说明渲染。 */
-export const BUTTON_LIST: { btn: number; label: string }[] = [
-  { btn: Button.Joypad1Up, label: '上' },
-  { btn: Button.Joypad1Down, label: '下' },
-  { btn: Button.Joypad1Left, label: '左' },
-  { btn: Button.Joypad1Right, label: '右' },
-  { btn: Button.Joypad1A, label: 'A' },
-  { btn: Button.Joypad1B, label: 'B' },
-  { btn: TURBO_A, label: '连发A' },
-  { btn: TURBO_B, label: '连发B' },
-  { btn: Button.Start, label: 'Start' },
-  { btn: Button.Select, label: 'Select' },
+export const PAD_BUTTON_LIST: { btn: PadButton; label: string }[] = [
+  { btn: PadButton.Up, label: '上' },
+  { btn: PadButton.Down, label: '下' },
+  { btn: PadButton.Left, label: '左' },
+  { btn: PadButton.Right, label: '右' },
+  { btn: PadButton.A, label: 'A' },
+  { btn: PadButton.B, label: 'B' },
+  { btn: PadButton.TurboA, label: '连发A' },
+  { btn: PadButton.TurboB, label: '连发B' },
+  { btn: PadButton.Start, label: 'Start' },
+  { btn: PadButton.Select, label: 'Select' },
 ]
 
 export const SPEED_OPTIONS = [0.5, 1, 2, 3]
@@ -78,34 +132,60 @@ export const TURBO_HZ_OPTIONS = [8, 16, 24, 30]
 /** 摇杆轴触发阈值:绝对值超过此值才视为对应方向按下,避免静止漂移误触。 */
 export const GAMEPAD_AXIS_THRESHOLD = 0.5
 
+// 标准手柄(W3C Standard Gamepad)默认映射:方向用 D-pad(b12~b15),A/B 取 Nintendo
+// 手感(A 在右=b1,B 在下=b0),连发绑到面键 X/Y。作为未建档型号的运行时回退与新建档案的初值。
+export function defaultPadmap(): Padmap {
+  return {
+    [PadButton.Up]: 'b12',
+    [PadButton.Down]: 'b13',
+    [PadButton.Left]: 'b14',
+    [PadButton.Right]: 'b15',
+    [PadButton.A]: 'b1',
+    [PadButton.B]: 'b0',
+    [PadButton.TurboA]: 'b3',
+    [PadButton.TurboB]: 'b2',
+    [PadButton.Start]: 'b9',
+    [PadButton.Select]: 'b8',
+  }
+}
+
 function defaultSettings(): Settings {
   return {
-    keymap: {
-      [Button.Joypad1Up]: 'ArrowUp',
-      [Button.Joypad1Down]: 'ArrowDown',
-      [Button.Joypad1Left]: 'ArrowLeft',
-      [Button.Joypad1Right]: 'ArrowRight',
-      [Button.Joypad1A]: 'KeyZ',
-      [Button.Joypad1B]: 'KeyX',
-      [Button.Start]: 'Enter',
-      [Button.Select]: 'ShiftRight',
-      [TURBO_A]: 'KeyA',
-      [TURBO_B]: 'KeyS',
-    },
-    // 默认按标准手柄布局(W3C Standard Gamepad):方向用 D-pad(b12~b15),
-    // A/B 取 Nintendo 手感(A 在右=b1,B 在下=b0),连发绑到面键 X/Y。
-    padmap: {
-      [Button.Joypad1Up]: 'b12',
-      [Button.Joypad1Down]: 'b13',
-      [Button.Joypad1Left]: 'b14',
-      [Button.Joypad1Right]: 'b15',
-      [Button.Joypad1A]: 'b1',
-      [Button.Joypad1B]: 'b0',
-      [Button.Start]: 'b9',
-      [Button.Select]: 'b8',
-      [TURBO_A]: 'b3',
-      [TURBO_B]: 'b2',
-    },
+    players: [
+      // 玩家1:键盘默认 WASD(方向)+ JK(B/A)+ UI(连发)。
+      {
+        keymap: {
+          [PadButton.Up]: 'KeyW',
+          [PadButton.Down]: 'KeyS',
+          [PadButton.Left]: 'KeyA',
+          [PadButton.Right]: 'KeyD',
+          [PadButton.A]: 'KeyK',
+          [PadButton.B]: 'KeyJ',
+          [PadButton.TurboA]: 'KeyI',
+          [PadButton.TurboB]: 'KeyU',
+          [PadButton.Start]: 'Enter',
+          [PadButton.Select]: 'ShiftRight',
+        },
+        gamepadIndex: null,
+      },
+      // 玩家2:键盘默认方向键(方向)+ 小键盘(A/B/连发/开始)。
+      {
+        keymap: {
+          [PadButton.Up]: 'ArrowUp',
+          [PadButton.Down]: 'ArrowDown',
+          [PadButton.Left]: 'ArrowLeft',
+          [PadButton.Right]: 'ArrowRight',
+          [PadButton.A]: 'Numpad2',
+          [PadButton.B]: 'Numpad1',
+          [PadButton.TurboA]: 'Numpad5',
+          [PadButton.TurboB]: 'Numpad4',
+          [PadButton.Start]: 'NumpadEnter',
+          [PadButton.Select]: 'Numpad0',
+        },
+        gamepadIndex: null,
+      },
+    ],
+    gamepadProfiles: {},
     display: {
       smoothing: false,
       aspect: '1:1',
@@ -126,13 +206,26 @@ function defaultSettings(): Settings {
 
 const STORAGE_KEY = 'nes.settings'
 
+/** 把已存的单玩家配置与默认值合并,容忍缺字段。 */
+function mergePlayer(base: PlayerConfig, saved: unknown): PlayerConfig {
+  if (!saved || typeof saved !== 'object') return base
+  const s = saved as Partial<PlayerConfig>
+  return {
+    keymap: { ...base.keymap, ...(s.keymap ?? {}) },
+    gamepadIndex: typeof s.gamepadIndex === 'number' ? s.gamepadIndex : base.gamepadIndex,
+  }
+}
+
 /** 把已存的设置与默认值深合并,容忍缺字段/旧版本。 */
 function merge(base: Settings, saved: unknown): Settings {
   if (!saved || typeof saved !== 'object') return base
   const s = saved as Partial<Settings>
+  const savedPlayers = Array.isArray(s.players) ? s.players : []
+  const savedProfiles =
+    s.gamepadProfiles && typeof s.gamepadProfiles === 'object' ? s.gamepadProfiles : {}
   return {
-    keymap: { ...base.keymap, ...(s.keymap ?? {}) },
-    padmap: { ...base.padmap, ...(s.padmap ?? {}) },
+    players: base.players.map((p, i) => mergePlayer(p, savedPlayers[i])),
+    gamepadProfiles: { ...savedProfiles },
     display: { ...base.display, ...(s.display ?? {}) },
     audio: { ...base.audio, ...(s.audio ?? {}) },
     misc: { ...base.misc, ...(s.misc ?? {}) },
@@ -168,11 +261,36 @@ export function resetSettings(): void {
   Object.assign(settings, defaultSettings())
 }
 
-/** 仅恢复按键映射(键盘 + 手柄)为默认值。 */
+/** 仅恢复按键映射(键盘 + 全部手柄档案)为默认值,保留各玩家的手柄绑定。 */
 export function resetKeymap(): void {
   const d = defaultSettings()
-  settings.keymap = d.keymap
-  settings.padmap = d.padmap
+  settings.players.forEach((p, i) => {
+    p.keymap = d.players[i].keymap
+  })
+  settings.gamepadProfiles = {}
+}
+
+/** 取某型号手柄的有效映射:已建档则返回档案,否则回退标准布局(不写入)。 */
+export function padmapFor(gamepadId: string | undefined): Padmap {
+  if (gamepadId && settings.gamepadProfiles[gamepadId]) return settings.gamepadProfiles[gamepadId]
+  return defaultPadmap()
+}
+
+/** 确保某型号手柄已有档案(以标准布局为初值),返回该档案;用于设置界面写入前。 */
+export function ensurePadProfile(gamepadId: string): Padmap {
+  if (!settings.gamepadProfiles[gamepadId]) {
+    settings.gamepadProfiles[gamepadId] = defaultPadmap()
+  }
+  return settings.gamepadProfiles[gamepadId]
+}
+
+/** 给某型号手柄绑定一个逻辑按钮的输入标识;同标识若已绑别的按钮则先解绑,避免冲突。 */
+export function setPadBinding(gamepadId: string, pad: PadButton, sig: string): void {
+  const profile = ensurePadProfile(gamepadId)
+  for (const key of Object.keys(profile)) {
+    if (profile[Number(key)] === sig && Number(key) !== pad) profile[Number(key)] = ''
+  }
+  profile[pad] = sig
 }
 
 /** 由 keymap 反推 code -> 按钮 id 查找表,供运行时按键派发。 */
@@ -193,6 +311,16 @@ export function buildPadToButton(map: Record<number, string>): Record<string, nu
   return out
 }
 
+/** 当前已连接的实体手柄列表(下标 + 名称),供设置界面分配玩家。 */
+export function listGamepads(): { index: number; id: string }[] {
+  const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
+  const out: { index: number; id: string }[] = []
+  for (const pad of pads) {
+    if (pad) out.push({ index: pad.index, id: pad.id })
+  }
+  return out
+}
+
 /** 部分 KeyboardEvent.code 的友好显示名。 */
 const CODE_LABELS: Record<string, string> = {
   ArrowUp: '↑',
@@ -207,6 +335,9 @@ const CODE_LABELS: Record<string, string> = {
   ControlRight: 'R-Ctrl',
   Tab: 'Tab',
   Backspace: 'Backspace',
+  NumpadEnter: 'Num Enter',
+  NumpadAdd: 'Num +',
+  NumpadSubtract: 'Num -',
 }
 
 /** 把 KeyboardEvent.code 显示成更友好的名字。 */
