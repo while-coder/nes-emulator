@@ -89,7 +89,7 @@ function onSystemAction(action: string) {
 <template>
   <div class="app">
     <header class="toolbar">
-      <h1 class="title">NES 模拟器</h1>
+      <h1 class="title">NES/FC 模拟器</h1>
       <div class="spacer" />
       <button class="btn" :disabled="loading" @click="openRom">
         {{ loading ? '载入中...' : '打开 ROM' }}

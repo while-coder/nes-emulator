@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "NES 模拟器",
+        "title": "NES/FC 模拟器",
         "width": 800,
         "height": 600,
         "resizable": true,
