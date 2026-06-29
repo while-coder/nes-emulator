@@ -478,9 +478,15 @@ async function toggleFullscreen() {
 
 // 屏幕方向:载入 ROM 后尝试锁横屏(NES 横屏游玩体验更好),停止 / 卸载时解锁。
 // 仅在 PWA standalone 或全屏下生效;桌面 / 普通浏览器标签会被拒,静默忽略。
+// 类型断言:lock/unlock 是 Screen Orientation API,实际浏览器(Chrome/Android)支持,
+// 但 TS lib.dom 在当前版本里尚未声明,故用结构化类型绕过。
+type OrientationLockApi = {
+  lock?: (orientation: string) => Promise<void>
+  unlock?: () => void
+}
 async function lockLandscape() {
   try {
-    await screen.orientation?.lock?.('landscape')
+    await (screen.orientation as unknown as OrientationLockApi | undefined)?.lock?.('landscape')
   } catch (err) {
     // 桌面、iOS Safari、非 PWA 浏览器都可能拒绝,这是预期行为。
     console.debug('[NES] 横屏锁定不可用', err)
@@ -488,7 +494,7 @@ async function lockLandscape() {
 }
 function unlockOrientation() {
   try {
-    screen.orientation?.unlock?.()
+    ;(screen.orientation as unknown as OrientationLockApi | undefined)?.unlock?.()
   } catch {
     // ignore
   }
