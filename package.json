@@ -9,6 +9,11 @@
     "dev:web": "npm run dev --workspace @nes-emulator/web",
     "dev:app": "npm run dev --workspace @nes-emulator/app",
     "build:web": "npm run build --workspace @nes-emulator/web",
-    "build:app": "npm run build --workspace @nes-emulator/app"
+    "build:app": "npm run build --workspace @nes-emulator/app",
+    "android:init": "npm run android:init --workspace @nes-emulator/app",
+    "android:dev": "npm run android:dev --workspace @nes-emulator/app",
+    "android:build": "npm run android:build --workspace @nes-emulator/app",
+    "ios:dev": "npm run ios:dev --workspace @nes-emulator/app",
+    "ios:build": "npm run ios:build --workspace @nes-emulator/app"
   }
 }
