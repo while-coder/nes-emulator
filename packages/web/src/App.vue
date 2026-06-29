@@ -218,6 +218,19 @@ body {
   color: #e8e8e8;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   overflow: hidden;
+  /* 移动端长按容易触发文字选中 / iOS 放大镜 / 系统 callout,影响游玩。
+     全局禁用,真正需要输入的元素下方单独放开。 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+input,
+textarea,
+[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 </style>
 

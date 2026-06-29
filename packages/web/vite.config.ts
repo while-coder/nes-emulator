@@ -17,6 +17,9 @@ export default defineConfig({
         description: 'NES/FC 在线模拟器,支持触屏手柄与存档,可添加到主屏全屏游玩。',
         lang: 'zh-CN',
         display: 'standalone',
+        // Android 上优先 fullscreen(隐藏系统状态栏);不支持时回退 standalone。
+        // iOS PWA 由 apple-mobile-web-app-capable + status-bar-style 控制,与此无关。
+        display_override: ['fullscreen', 'standalone'],
         // 不锁定方向,跟随系统(竖屏/横屏皆可)。
         background_color: '#202328',
         theme_color: '#202328',

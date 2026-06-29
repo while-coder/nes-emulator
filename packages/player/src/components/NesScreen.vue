@@ -461,12 +461,17 @@ watch(
   () => applyDisplaySize(),
 )
 
-// 全屏
+// 全屏:Android Chrome 工作良好;iOS PWA(standalone)的 Fullscreen API 不一定可用,
+// 这种情况下 PWA 本身已无浏览器 UI,失败时静默忽略即可,避免抛未处理异常。
 async function toggleFullscreen() {
-  if (document.fullscreenElement) {
-    await document.exitFullscreen()
-  } else {
-    await wrapRef.value?.requestFullscreen()
+  try {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen()
+    } else {
+      await wrapRef.value?.requestFullscreen()
+    }
+  } catch (err) {
+    console.warn('[NES] 全屏切换不可用', err)
   }
 }
 
