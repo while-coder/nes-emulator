@@ -19,9 +19,9 @@ export type RomCatalog = {
   games: RomEntry[]
 }
 
-const configuredCatalogUrl = import.meta.env.VITE_ROM_CATALOG_URL?.trim()
-
-export const DEFAULT_CATALOG_URL = configuredCatalogUrl || './catalog.json'
+// ROM 目录运行时从远程加载(web/app 均不打包进产物);切换源改此处即可。
+export const DEFAULT_CATALOG_URL =
+  'https://raw.githubusercontent.com/while-coder/nes-roms/main/catalog.json'
 
 export function emptyRomCatalog(): RomCatalog {
   return {

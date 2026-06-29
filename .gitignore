@@ -9,13 +9,15 @@ packages/player/node_modules/
 packages/web/node_modules/
 packages/app/dist/
 packages/web/dist/
-packages/web/public/catalog.json
 
 # WASM 构建产物(由 scripts/build-wasm.sh 生成)
 packages/player/src/wasm/
 
 # TypeScript 增量构建产物
 **/tsconfig.tsbuildinfo
+
+# 密钥 — 禁止提交（release.jks、keystore.properties 等）
+/secrets/
 
 # 杂项
 .DS_Store

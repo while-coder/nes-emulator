@@ -4,11 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "sync:rom-catalog": "node ../../scripts/prepare-rom-catalog.mjs",
-    "predev": "npm run sync:rom-catalog",
     "dev": "vite",
-    "prebuild": "npm run sync:rom-catalog",
-    "build": "vue-tsc -b && vite build",
+    "build": "vue-tsc -b --force && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

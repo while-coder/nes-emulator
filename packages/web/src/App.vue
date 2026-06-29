@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { PAD_BUTTON_LIST, codeLabel, NesScreen, SettingsModal, settings } from '@nes-emulator/player'
-import RomStorePanel from './components/RomStorePanel.vue'
+import {
+  PAD_BUTTON_LIST,
+  codeLabel,
+  NesScreen,
+  RomStorePanel,
+  SettingsModal,
+  settings,
+} from '@nes-emulator/player'
 import { isTauri, pickRomFile, storage } from './emulator/platform'
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)

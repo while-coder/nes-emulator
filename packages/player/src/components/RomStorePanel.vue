@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { downloadRom, validateRomBytes, type DownloadProgress } from '../store/romDownloader'
 import {
   emptyRomCatalog,
@@ -146,10 +146,143 @@ function goPage(target: number) {
   page.value = Math.min(Math.max(1, target), totalPages.value)
 }
 
+// ===== 手柄 / 方向键导航(TV 无触摸,用遥控器/手柄操作库)=====
+// 仅在面板打开时启用;焦点落在当前页可见的游戏卡片上。
+const focusIndex = ref(0)
+const visibleItems = computed<(CachedRom | RomEntry)[]>(() =>
+  activeTab.value === 'downloaded' ? visibleDownloaded.value : visibleGames.value,
+)
+
+// 列表变化(翻页/切 tab/筛选)后收敛焦点,避免越界。
+watch(visibleItems, (items) => {
+  if (focusIndex.value > items.length - 1) focusIndex.value = Math.max(0, items.length - 1)
+})
+
+function moveFocus(delta: number) {
+  const n = visibleItems.value.length
+  if (n === 0) return
+  focusIndex.value = Math.min(Math.max(0, focusIndex.value + delta), n - 1)
+  void scrollFocusedIntoView()
+}
+
+async function scrollFocusedIntoView() {
+  await nextTick()
+  document.querySelector('.game-card.focused')?.scrollIntoView({ block: 'nearest' })
+}
+
+function launchFocused() {
+  if (busyKey.value !== null) return
+  const item = visibleItems.value[focusIndex.value]
+  if (!item) return
+  if (activeTab.value === 'downloaded') void playCached(item as CachedRom)
+  else void play(item as RomEntry)
+}
+
+function switchTab() {
+  activeTab.value = activeTab.value === 'downloaded' ? 'online' : 'downloaded'
+  focusIndex.value = 0
+}
+
+function onNavKey(e: KeyboardEvent) {
+  if (!open.value) return
+  const tag = (e.target as HTMLElement | null)?.tagName
+  const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
+  switch (e.key) {
+    case 'Escape':
+      e.preventDefault()
+      if (busyKey.value === null) open.value = false
+      break
+    case 'ArrowDown':
+      if (inField) return
+      e.preventDefault()
+      moveFocus(1)
+      break
+    case 'ArrowUp':
+      if (inField) return
+      e.preventDefault()
+      moveFocus(-1)
+      break
+    case 'Enter':
+      if (inField) return
+      e.preventDefault()
+      launchFocused()
+      break
+    case 'ArrowLeft':
+    case 'ArrowRight':
+      if (inField) return
+      e.preventDefault()
+      switchTab()
+      break
+    case 'PageUp':
+      e.preventDefault()
+      goPage(page.value - 1)
+      focusIndex.value = 0
+      break
+    case 'PageDown':
+      e.preventDefault()
+      goPage(page.value + 1)
+      focusIndex.value = 0
+      break
+  }
+}
+
+// 手柄轮询(仅库打开时):方向移动、A(b0)启动、B(b1)返回、LB/RB(b4/b5)切 tab。边沿触发。
+let navRaf = 0
+const navPrev = { up: false, down: false, ok: false, back: false, tab: false }
+function pollNav() {
+  navRaf = requestAnimationFrame(pollNav)
+  const pads = navigator.getGamepads ? navigator.getGamepads() : []
+  let up = false
+  let down = false
+  let ok = false
+  let back = false
+  let tab = false
+  for (const pad of pads) {
+    if (!pad) continue
+    if (pad.buttons[12]?.pressed) up = true
+    if (pad.buttons[13]?.pressed) down = true
+    const ay = pad.axes[1] ?? 0
+    if (ay < -0.5) up = true
+    if (ay > 0.5) down = true
+    if (pad.buttons[0]?.pressed) ok = true
+    if (pad.buttons[1]?.pressed) back = true
+    if (pad.buttons[4]?.pressed || pad.buttons[5]?.pressed) tab = true
+  }
+  if (down && !navPrev.down) moveFocus(1)
+  if (up && !navPrev.up) moveFocus(-1)
+  if (ok && !navPrev.ok) launchFocused()
+  if (back && !navPrev.back && busyKey.value === null) open.value = false
+  if (tab && !navPrev.tab) switchTab()
+  navPrev.up = up
+  navPrev.down = down
+  navPrev.ok = ok
+  navPrev.back = back
+  navPrev.tab = tab
+}
+
+function startNav() {
+  focusIndex.value = 0
+  window.addEventListener('keydown', onNavKey)
+  if (!navRaf) navRaf = requestAnimationFrame(pollNav)
+}
+function stopNav() {
+  window.removeEventListener('keydown', onNavKey)
+  if (navRaf) {
+    cancelAnimationFrame(navRaf)
+    navRaf = 0
+  }
+}
+onBeforeUnmount(stopNav)
+
 watch(
   open,
   (value) => {
-    if (value) void prepareStore()
+    if (value) {
+      void prepareStore()
+      startNav()
+    } else {
+      stopNav()
+    }
   },
   { immediate: true },
 )
@@ -367,7 +500,12 @@ function formatError(err: unknown): string {
       </div>
 
       <div v-if="activeTab === 'downloaded'" class="game-list">
-        <article v-for="rom in visibleDownloaded" :key="rom.key" class="game-card">
+        <article
+          v-for="(rom, idx) in visibleDownloaded"
+          :key="rom.key"
+          class="game-card"
+          :class="{ focused: activeTab === 'downloaded' && idx === focusIndex }"
+        >
           <div class="game-main">
             <div class="game-title-row">
               <h3>{{ rom.name }}</h3>
@@ -396,7 +534,12 @@ function formatError(err: unknown): string {
       </div>
 
       <div v-else class="game-list">
-        <article v-for="game in visibleGames" :key="romKey(game)" class="game-card">
+        <article
+          v-for="(game, idx) in visibleGames"
+          :key="romKey(game)"
+          class="game-card"
+          :class="{ focused: activeTab === 'online' && idx === focusIndex }"
+        >
           <div class="game-main">
             <div class="game-title-row">
               <h3>{{ game.name }}</h3>
@@ -584,6 +727,11 @@ function formatError(err: unknown): string {
 }
 .game-card + .game-card {
   margin-top: 8px;
+}
+/* 手柄/方向键导航的当前焦点卡片 */
+.game-card.focused {
+  border-color: #2f6f9f;
+  box-shadow: 0 0 0 2px rgba(47, 111, 159, 0.6);
 }
 .game-main {
   min-width: 0;

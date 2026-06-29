@@ -8,7 +8,12 @@ const rootDir = path.resolve(scriptDir, '..')
 const defaultCatalogUrl = 'https://raw.githubusercontent.com/while-coder/nes-roms/main/catalog.json'
 const defaultLocalCatalogPath = process.platform === 'win32' ? 'E:\\nes-roms\\catalog.json' : ''
 const fallbackLocalCatalogPath = path.resolve(rootDir, '..', 'nes-roms', 'catalog.json')
-const outputPath = path.resolve(rootDir, 'packages', 'web', 'public', 'catalog.json')
+// 输出路径:优先 CLI 参数,其次 env,默认 web 包的 public(不破坏 web 既有流程)。
+// 路径相对仓库根解析,便于各包在自己的 npm script 里指定自身 public 目录。
+const outputArg = process.argv[2] || process.env.NES_ROM_CATALOG_OUT
+const outputPath = outputArg
+  ? path.resolve(rootDir, outputArg)
+  : path.resolve(rootDir, 'packages', 'web', 'public', 'catalog.json')
 
 const catalog = await readCatalog()
 await mkdir(path.dirname(outputPath), { recursive: true })

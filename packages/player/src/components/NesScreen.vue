@@ -14,6 +14,11 @@ import {
   type Aspect,
 } from '../emulator/settings'
 
+// inputLocked:模态(游戏库/设置)打开时为真,此时不把输入喂给游戏。
+const props = defineProps<{ inputLocked?: boolean }>()
+// systemAction:应用级快捷键(手柄空闲键 / 键盘),交父组件处理。
+const emit = defineEmits<{ systemAction: [action: string] }>()
+
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const wrapRef = ref<HTMLDivElement | null>(null)
 const frameRef = ref<HTMLDivElement | null>(null)
@@ -33,12 +38,25 @@ const codeToAction = computed(() => {
 })
 
 function onKeyDown(e: KeyboardEvent) {
+  if (props.inputLocked) return // 模态接管,游戏不收输入
+  // 应用级快捷键(避开游戏占用的键):Esc=暂停/继续,反引号=打开游戏库。
+  if (e.code === 'Escape') {
+    e.preventDefault()
+    if (!e.repeat) emit('systemAction', 'toggle-pause')
+    return
+  }
+  if (e.code === 'Backquote') {
+    e.preventDefault()
+    if (!e.repeat) emit('systemAction', 'open-library')
+    return
+  }
   const a = codeToAction.value[e.code]
   if (!a) return
   e.preventDefault()
   pressPad(a.player, a.pad)
 }
 function onKeyUp(e: KeyboardEvent) {
+  if (props.inputLocked) return
   const a = codeToAction.value[e.code]
   if (!a) return
   e.preventDefault()
@@ -136,10 +154,56 @@ watch(
 let padRaf = 0
 const padActive: Set<number>[] = [new Set<number>(), new Set<number>()]
 
+// 手柄空闲肩键(游戏未占用)做应用级快捷键:LB(b4)=暂停/继续,RB(b5)=打开游戏库。
+// 跨所有手柄取或,独立边沿检测,避免长按重复触发。
+const sysPadPrev = { lb: false, rb: false }
+function detectSystemPadButtons(pads: (Gamepad | null)[]) {
+  let lb = false
+  let rb = false
+  for (const pad of pads) {
+    if (!pad) continue
+    if (pad.buttons[4]?.pressed) lb = true
+    if (pad.buttons[5]?.pressed) rb = true
+  }
+  if (lb && !sysPadPrev.lb) emit('systemAction', 'toggle-pause')
+  if (rb && !sysPadPrev.rb) emit('systemAction', 'open-library')
+  sysPadPrev.lb = lb
+  sysPadPrev.rb = rb
+}
+
+// 锁定输入瞬间释放所有已按下的游戏按钮与连发,避免卡键。
+function releaseAllGameInput() {
+  activeTurbo.clear()
+  turboPressed.clear()
+  if (turboTimer) {
+    clearInterval(turboTimer)
+    turboTimer = 0
+  }
+  const buttons = [
+    PadButton.Up,
+    PadButton.Down,
+    PadButton.Left,
+    PadButton.Right,
+    PadButton.A,
+    PadButton.B,
+    PadButton.Start,
+    PadButton.Select,
+  ]
+  for (let player = 0; player < settings.players.length; player++) {
+    for (const pad of buttons) {
+      const btn = runnerButton(player, pad)
+      if (btn !== null) runner?.release(btn)
+    }
+  }
+  padActive.forEach((s) => s.clear())
+}
+
 function pollGamepads() {
   padRaf = requestAnimationFrame(pollGamepads)
   if (!runner) return
+  if (props.inputLocked) return // 模态接管手柄(库内导航自行轮询)
   const pads = navigator.getGamepads ? navigator.getGamepads() : []
+  detectSystemPadButtons(pads)
   settings.players.forEach((p, pi) => {
     const pad = p.gamepadIndex !== null ? pads[p.gamepadIndex] : null
     const now = new Set<number>()
@@ -253,6 +317,13 @@ onBeforeUnmount(() => {
 // 设置变化 -> 同步到 runner 与画面尺寸。
 watch(() => settings.audio.volume, (v) => runner?.setVolume(v))
 watch(() => settings.misc.speed, (v) => runner?.setSpeed(v))
+// 进入模态(锁定输入)时释放所有游戏按键,避免卡键。
+watch(
+  () => props.inputLocked,
+  (locked) => {
+    if (locked) releaseAllGameInput()
+  },
+)
 watch(
   () => [settings.display.aspect, settings.display.integerScale],
   () => applyDisplaySize(),

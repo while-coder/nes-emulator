@@ -13,6 +13,18 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// 从 `<repo>/secrets/keystore.properties`（本地开发）或环境变量（CI）读取签名配置。
+// 文件优先；CI 设置 ANDROID_KEYSTORE_PATH/PASSWORD/KEY_ALIAS/KEY_PASSWORD。
+val ksFile = rootProject.file("../../../../../secrets/keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (ksFile.exists()) {
+        ksFile.inputStream().use { load(it) }
+    }
+}
+fun signingProp(fileKey: String, envKey: String): String? =
+    keystoreProperties.getProperty(fileKey)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(envKey)?.takeIf { it.isNotBlank() }
+
 android {
     compileSdk = 36
     namespace = "com.wandergame.nesemulator"
@@ -23,6 +35,23 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        create("release") {
+            val storeFilePath = signingProp("storeFile", "ANDROID_KEYSTORE_PATH")
+            if (!storeFilePath.isNullOrBlank()) {
+                // 文件中的路径相对 keystore.properties 解析；环境变量中的路径为绝对路径。
+                storeFile = if (keystoreProperties.getProperty("storeFile").isNullOrBlank())
+                    file(storeFilePath)
+                else
+                    ksFile.parentFile.resolve(storeFilePath)
+                storePassword = signingProp("storePassword", "ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = signingProp("keyAlias", "ANDROID_KEY_ALIAS")
+                keyPassword = signingProp("keyPassword", "ANDROID_KEY_PASSWORD")
+                enableV1Signing = true
+                enableV2Signing = true
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -38,6 +67,10 @@ android {
             }
         }
         getByName("release") {
+            val releaseSigning = signingConfigs.getByName("release")
+            if (releaseSigning.storeFile != null) {
+                signingConfig = releaseSigning
+            }
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }

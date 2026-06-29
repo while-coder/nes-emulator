@@ -1,5 +1,6 @@
 export { default as NesScreen } from './components/NesScreen.vue'
 export { default as SettingsModal } from './components/SettingsModal.vue'
+export { default as RomStorePanel } from './components/RomStorePanel.vue'
 export { Button, NesRunner, SCREEN } from './emulator/runner'
 export {
   PAD_BUTTON_LIST,
