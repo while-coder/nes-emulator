@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watchEffect } from 'vue'
 import {
   PAD_BUTTON_LIST,
   codeLabel,
@@ -9,8 +9,10 @@ import {
   SettingsModal,
   ShortcutsPanel,
   ToolbarMenu,
+  navEnabled,
   settings,
   sha256Hex,
+  useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
 import { isTauri, pickRomFile, storage } from './emulator/platform'
@@ -32,6 +34,26 @@ const helpOpen = ref(false)
 const inputLocked = computed(
   () => storeOpen.value || settingsOpen.value || savesOpen.value || helpOpen.value,
 )
+
+// Web 预览也需要注册一个顶层遥控导航实例;npm run dev 启动的正是这个入口。
+// 未载入游戏或游戏暂停时,方向键用于工具栏焦点导航;游戏运行中则交给 NesScreen。
+const toolbarRef = ref<HTMLElement | null>(null)
+const toolbarNavActive = computed(
+  () => navEnabled.value && !inputLocked.value && (!romName.value || paused.value),
+)
+useRemoteNav({
+  container: toolbarRef,
+  active: toolbarNavActive,
+  autoFocus: true,
+  priority: 0,
+})
+
+// 焦点环作用到全局,保证 Teleport 到 body 的下拉菜单也能显示遥控焦点。
+if (typeof document !== 'undefined') {
+  watchEffect(() => {
+    document.documentElement.classList.toggle('tv-nav', navEnabled.value)
+  })
+}
 
 // 快捷键修饰键:桌面(Tauri)用 Ctrl,浏览器用 Shift(避开 Ctrl+L/N 等浏览器冲突)。
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
@@ -133,8 +155,8 @@ function onSystemAction(action: string) {
 </script>
 
 <template>
-  <div class="app">
-    <header class="toolbar">
+  <div class="app" :class="{ 'tv-nav': navEnabled }">
+    <header ref="toolbarRef" class="toolbar">
       <h1 class="title">NES 模拟器</h1>
       <div class="spacer" />
       <button class="btn" :disabled="loading" @click="openRom">
@@ -183,7 +205,7 @@ function onSystemAction(action: string) {
     <main class="stage">
       <NesScreen
         ref="screen"
-        :input-locked="inputLocked"
+        :input-locked="inputLocked || paused"
         :modifier="modKey"
         :rom-key="romKey"
         :rom-name="romName"
@@ -231,6 +253,19 @@ textarea,
   user-select: text;
   -webkit-user-select: text;
   -webkit-touch-callout: default;
+}
+/* TV/遥控器焦点环:首次按方向键后启用,桌面鼠标移动会退出。 */
+.tv-nav :focus-visible,
+.tv-nav button:focus,
+.tv-nav a:focus,
+.tv-nav input:focus,
+.tv-nav select:focus,
+.tv-nav textarea:focus,
+.tv-nav [tabindex]:focus,
+.tv-nav [data-nav]:focus {
+  outline: 3px solid #4ea1ff;
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 </style>
 

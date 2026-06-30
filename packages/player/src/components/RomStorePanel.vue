@@ -18,6 +18,7 @@ import {
   touchCachedRom,
   type CachedRom,
 } from '../store/romLibrary'
+import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 
 type StoreTab = 'downloaded' | 'online'
 
@@ -146,146 +147,62 @@ function goPage(target: number) {
   page.value = Math.min(Math.max(1, target), totalPages.value)
 }
 
-// ===== 手柄 / 方向键导航(TV 无触摸,用遥控器/手柄操作库)=====
-// 仅在面板打开时启用;焦点落在当前页可见的游戏卡片上。
-const focusIndex = ref(0)
-const visibleItems = computed<(CachedRom | RomEntry)[]>(() =>
-  activeTab.value === 'downloaded' ? visibleDownloaded.value : visibleGames.value,
-)
-
-// 列表变化(翻页/切 tab/筛选)后收敛焦点,避免越界。
-watch(visibleItems, (items) => {
-  if (focusIndex.value > items.length - 1) focusIndex.value = Math.max(0, items.length - 1)
+// Android TV 遥控器:面板内焦点几何导航(标签 / 搜索框 / 筛选 / 卡片按钮 / 翻页)。
+// 与 SaveStatePanel 共用 useRemoteNav,priority=10 让面板打开时夺走按键;BACK 关面板。
+// 不用 autoFocus:默认首焦点是右上角关闭键,几何寻路从那儿走不到左侧标签;
+// 改为打开时手动把焦点落在当前标签按钮,DPad 左右即可切换标签。
+const panelRef = ref<HTMLElement | null>(null)
+const downloadedTabRef = ref<HTMLButtonElement | null>(null)
+const onlineTabRef = ref<HTMLButtonElement | null>(null)
+const { focusElement } = useRemoteNav({
+  container: panelRef,
+  active: computed(() => navEnabled.value && open.value),
+  onBack: () => {
+    if (busyKey.value === null) open.value = false
+  },
+  autoFocus: false,
+  priority: 10,
 })
 
-function moveFocus(delta: number) {
-  const n = visibleItems.value.length
-  if (n === 0) return
-  focusIndex.value = Math.min(Math.max(0, focusIndex.value + delta), n - 1)
-  void scrollFocusedIntoView()
-}
-
-async function scrollFocusedIntoView() {
-  await nextTick()
-  document.querySelector('.game-card.focused')?.scrollIntoView({ block: 'nearest' })
-}
-
-function launchFocused() {
-  if (busyKey.value !== null) return
-  const item = visibleItems.value[focusIndex.value]
-  if (!item) return
-  if (activeTab.value === 'downloaded') void playCached(item as CachedRom)
-  else void play(item as RomEntry)
-}
-
-function switchTab() {
-  activeTab.value = activeTab.value === 'downloaded' ? 'online' : 'downloaded'
-  focusIndex.value = 0
-}
-
-function onNavKey(e: KeyboardEvent) {
-  if (!open.value) return
-  const tag = (e.target as HTMLElement | null)?.tagName
-  const inField = tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA'
-  switch (e.key) {
-    case 'Escape':
-      e.preventDefault()
-      if (busyKey.value === null) open.value = false
-      break
-    case 'ArrowDown':
-      if (inField) return
-      e.preventDefault()
-      moveFocus(1)
-      break
-    case 'ArrowUp':
-      if (inField) return
-      e.preventDefault()
-      moveFocus(-1)
-      break
-    case 'Enter':
-      if (inField) return
-      e.preventDefault()
-      launchFocused()
-      break
-    case 'ArrowLeft':
-    case 'ArrowRight':
-      if (inField) return
-      e.preventDefault()
-      switchTab()
-      break
-    case 'PageUp':
-      e.preventDefault()
-      goPage(page.value - 1)
-      focusIndex.value = 0
-      break
-    case 'PageDown':
-      e.preventDefault()
-      goPage(page.value + 1)
-      focusIndex.value = 0
-      break
+// 返回键兜底:useRemoteNav 仅在 navEnabled(已按方向键/连手柄)时活跃;
+// 某些 TV 遥控器 BACK 不触发 navMode,需要面板自己监听 Escape/Backspace/GoBack 以保证可关。
+function onPanelBackKey(e: KeyboardEvent): void {
+  if (!open.value || busyKey.value !== null) return
+  const k = e.key
+  if (k === 'Escape' || k === 'GoBack' || k === 'BrowserBack') {
+    e.preventDefault()
+    open.value = false
+    return
+  }
+  if (k === 'Backspace') {
+    // 文本框里退格交还原生编辑(搜索框删字符)
+    const tag = (e.target as HTMLElement | null)?.tagName
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return
+    e.preventDefault()
+    open.value = false
   }
 }
-
-// 手柄轮询(仅库打开时):方向移动、A(b0)启动、B(b1)返回、LB/RB(b4/b5)切 tab。边沿触发。
-let navRaf = 0
-const navPrev = { up: false, down: false, ok: false, back: false, tab: false }
-function pollNav() {
-  navRaf = requestAnimationFrame(pollNav)
-  const pads = navigator.getGamepads ? navigator.getGamepads() : []
-  let up = false
-  let down = false
-  let ok = false
-  let back = false
-  let tab = false
-  for (const pad of pads) {
-    if (!pad) continue
-    if (pad.buttons[12]?.pressed) up = true
-    if (pad.buttons[13]?.pressed) down = true
-    const ay = pad.axes[1] ?? 0
-    if (ay < -0.5) up = true
-    if (ay > 0.5) down = true
-    if (pad.buttons[0]?.pressed) ok = true
-    if (pad.buttons[1]?.pressed) back = true
-    if (pad.buttons[4]?.pressed || pad.buttons[5]?.pressed) tab = true
-  }
-  if (down && !navPrev.down) moveFocus(1)
-  if (up && !navPrev.up) moveFocus(-1)
-  if (ok && !navPrev.ok) launchFocused()
-  if (back && !navPrev.back && busyKey.value === null) open.value = false
-  if (tab && !navPrev.tab) switchTab()
-  navPrev.up = up
-  navPrev.down = down
-  navPrev.ok = ok
-  navPrev.back = back
-  navPrev.tab = tab
-}
-
-function startNav() {
-  focusIndex.value = 0
-  window.addEventListener('keydown', onNavKey)
-  if (!navRaf) navRaf = requestAnimationFrame(pollNav)
-}
-function stopNav() {
-  window.removeEventListener('keydown', onNavKey)
-  if (navRaf) {
-    cancelAnimationFrame(navRaf)
-    navRaf = 0
-  }
-}
-onBeforeUnmount(stopNav)
 
 watch(
   open,
-  (value) => {
-    if (value) {
-      void prepareStore()
-      startNav()
-    } else {
-      stopNav()
+  async (value) => {
+    if (!value) {
+      window.removeEventListener('keydown', onPanelBackKey)
+      return
     }
+    window.addEventListener('keydown', onPanelBackKey)
+    void prepareStore()
+    // 等 v-if 渲染面板节点,再把焦点落到当前标签按钮上。
+    await nextTick()
+    requestAnimationFrame(() => {
+      const tab = activeTab.value === 'downloaded' ? downloadedTabRef.value : onlineTabRef.value
+      if (tab) focusElement(tab)
+    })
   },
   { immediate: true },
 )
+
+onBeforeUnmount(() => window.removeEventListener('keydown', onPanelBackKey))
 
 async function prepareStore() {
   await Promise.all([refreshCatalog(), refreshCached()])
@@ -447,7 +364,7 @@ function formatError(err: unknown): string {
 
 <template>
   <div v-if="open" class="store-backdrop" @click.self="busyKey === null && (open = false)">
-    <section class="store-panel" role="dialog" aria-modal="true" aria-labelledby="rom-store-title">
+    <section ref="panelRef" class="store-panel" role="dialog" aria-modal="true" aria-labelledby="rom-store-title">
       <header class="store-header">
         <div>
           <h2 id="rom-store-title">ROM 库</h2>
@@ -461,6 +378,7 @@ function formatError(err: unknown): string {
 
       <div class="store-tabs" role="tablist">
         <button
+          ref="downloadedTabRef"
           :class="['tab', activeTab === 'downloaded' ? 'active' : '']"
           role="tab"
           :aria-selected="activeTab === 'downloaded'"
@@ -469,6 +387,7 @@ function formatError(err: unknown): string {
           已下载 ({{ cachedRoms.length }})
         </button>
         <button
+          ref="onlineTabRef"
           :class="['tab', activeTab === 'online' ? 'active' : '']"
           role="tab"
           :aria-selected="activeTab === 'online'"
@@ -501,10 +420,9 @@ function formatError(err: unknown): string {
 
       <div v-if="activeTab === 'downloaded'" class="game-list">
         <article
-          v-for="(rom, idx) in visibleDownloaded"
+          v-for="rom in visibleDownloaded"
           :key="rom.key"
           class="game-card"
-          :class="{ focused: activeTab === 'downloaded' && idx === focusIndex }"
         >
           <div class="game-main">
             <div class="game-title-row">
@@ -535,10 +453,9 @@ function formatError(err: unknown): string {
 
       <div v-else class="game-list">
         <article
-          v-for="(game, idx) in visibleGames"
+          v-for="game in visibleGames"
           :key="romKey(game)"
           class="game-card"
-          :class="{ focused: activeTab === 'online' && idx === focusIndex }"
         >
           <div class="game-main">
             <div class="game-title-row">
@@ -727,11 +644,6 @@ function formatError(err: unknown): string {
 }
 .game-card + .game-card {
   margin-top: 8px;
-}
-/* 手柄/方向键导航的当前焦点卡片 */
-.game-card.focused {
-  border-color: #2f6f9f;
-  box-shadow: 0 0 0 2px rgba(47, 111, 159, 0.6);
 }
 .game-main {
   min-width: 0;

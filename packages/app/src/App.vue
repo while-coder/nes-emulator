@@ -14,6 +14,7 @@ import {
   sha256Hex,
   navEnabled,
   hasGamepad,
+  isTv,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
@@ -52,7 +53,7 @@ useRemoteNav({
   active: toolbarNavActive,
   autoFocus: true,
   priority: 0,
-  onBack: handleBack, // 主界面返回键 → 分级返回(此处即直接退出 app)
+  onBack: consumeBack, // 主界面返回键 → 分级返回(JS 侧路径,'exit' 时走 process.exit)
 })
 // 焦点环作用到全局(含 Teleport 到 body 的下拉菜单):TV 或已连手柄时给 <html> 标记 tv-nav。
 if (typeof document !== 'undefined') {
@@ -157,38 +158,45 @@ function onSystemAction(action: string) {
   } else if (action === 'open-saves') {
     savesOpen.value = true
   } else if (action === 'back') {
-    handleBack()
+    consumeBack()
   }
 }
 
 // 返回键分级返回:面板打开→关面板;游戏中→停止游戏回主界面;主界面→飘字+二次确认才退出。
-// 汇聚遥控器/手柄 BACK(经各 useRemoteNav.onBack 与 NesScreen 的 'back')与物理返回键(popstate)。
+// 返回 'exit' 时调用方负责真正退出(Android 由 Kotlin finish() 干掉 Activity;桌面/浏览器走 exitApp())。
+// 汇聚遥控器/手柄 BACK(经各 useRemoteNav.onBack 与 NesScreen 的 'back')与物理返回键(Kotlin 直接调用)。
 const EXIT_CONFIRM_MS = 2000
-function handleBack() {
-  if (helpOpen.value) helpOpen.value = false
-  else if (settingsOpen.value) settingsOpen.value = false
-  else if (savesOpen.value) savesOpen.value = false
-  else if (storeOpen.value) storeOpen.value = false
-  else if (romName.value) stopRom()
-  else {
-    const now = Date.now()
-    if (now - exitArmedAt < EXIT_CONFIRM_MS) {
-      if (exitHintTimer) { clearTimeout(exitHintTimer); exitHintTimer = null }
-      exitHintVisible.value = false
-      void exitApp()
-      return
-    }
-    exitArmedAt = now
-    exitHintVisible.value = true
-    if (exitHintTimer) clearTimeout(exitHintTimer)
-    exitHintTimer = setTimeout(() => {
-      exitHintVisible.value = false
-      exitHintTimer = null
-    }, EXIT_CONFIRM_MS)
+function handleBack(): 'exit' | 'handled' {
+  if (helpOpen.value) { helpOpen.value = false; return 'handled' }
+  if (settingsOpen.value) { settingsOpen.value = false; return 'handled' }
+  if (savesOpen.value) { savesOpen.value = false; return 'handled' }
+  if (storeOpen.value) { storeOpen.value = false; return 'handled' }
+  if (romName.value) { stopRom(); return 'handled' }
+
+  const now = Date.now()
+  if (now - exitArmedAt < EXIT_CONFIRM_MS) {
+    if (exitHintTimer) { clearTimeout(exitHintTimer); exitHintTimer = null }
+    exitHintVisible.value = false
+    return 'exit'
   }
+  exitArmedAt = now
+  exitHintVisible.value = true
+  if (exitHintTimer) clearTimeout(exitHintTimer)
+  exitHintTimer = setTimeout(() => {
+    exitHintVisible.value = false
+    exitHintTimer = null
+  }, EXIT_CONFIRM_MS)
+  return 'handled'
+}
+
+// 给 JS 端(useRemoteNav.onBack / NesScreen system-action / 浏览器 popstate)用:
+// 处理返回逻辑,且在需要退出时走 JS 侧的退出路径(桌面 Tauri 的 process.exit / 浏览器 window.close)。
+function consumeBack() {
+  if (handleBack() === 'exit') void exitApp()
 }
 
 // 退出 app:Tauri 用 process 插件 exit(0);浏览器预览降级 window.close()(失败静默)。
+// 注:Android Tauri 上 process.exit 不一定能真正关闭 Activity,所以 Kotlin 侧用 finish() 直接处理(见 MainActivity.kt)。
 async function exitApp() {
   if (isTauri) {
     try {
@@ -201,15 +209,18 @@ async function exitApp() {
   }
 }
 
-// 物理返回键(Android):Tauri 无官方拦截 API,用 history 占位 + popstate 捕获物理返回,
-// 转交分级返回。仅 Tauri 环境启用,避免干扰浏览器预览的前进/后退。
-// 注:目标设备的 WebView 若不把物理返回映射到 history.back,此路径可能失效(需原生兜底)。
+// 浏览器/桌面 Tauri 的兜底:物理后退 / 浏览器后退按钮 → popstate → 走分级返回。
+// Android Tauri 不走这条路:MainActivity.kt 直接 evaluateJavascript 调 window.__handleAndroidBack,
+// 拿到 'exit' 后 finish() Activity,绕开 process.exit 在 Android 上不稳的问题。
 function onPopState() {
-  handleBack()
-  // 维持占位,使下一次物理返回仍触发 popstate(若已 exit 则页面已销毁)。
+  consumeBack()
   history.pushState(null, '', location.href)
 }
 onMounted(() => {
+  if (typeof window !== 'undefined') {
+    // Kotlin 侧的 OnBackPressedCallback 通过 evaluateJavascript 调用此函数;返回值由 Kotlin 解读决定是否 finish()。
+    ;(window as Window & { __handleAndroidBack?: () => string }).__handleAndroidBack = () => handleBack()
+  }
   if (isTauri && typeof window !== 'undefined') {
     history.pushState(null, '', location.href)
     window.addEventListener('popstate', onPopState)
@@ -218,6 +229,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('popstate', onPopState)
+    delete (window as Window & { __handleAndroidBack?: () => string }).__handleAndroidBack
   }
   if (exitHintTimer) clearTimeout(exitHintTimer)
 })
@@ -228,7 +240,7 @@ onBeforeUnmount(() => {
     <header ref="toolbarRef" class="toolbar">
       <h1 class="title">NES/FC 模拟器</h1>
       <div class="spacer" />
-      <button class="btn" :disabled="loading" @click="openRom">
+      <button v-if="!isTv" class="btn" :disabled="loading" @click="openRom">
         {{ loading ? '载入中...' : '打开 ROM' }}
       </button>
       <button class="btn" @click="storeOpen = true">游戏库 <kbd>{{ modLabel }}+G</kbd></button>

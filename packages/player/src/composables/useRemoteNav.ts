@@ -129,7 +129,10 @@ function pickNeighbor(from: DOMRect, cands: HTMLElement[], dir: Dir): HTMLElemen
       overlap = r.top < from.bottom && r.bottom > from.top
     }
     if (main <= 1) continue // 不在该方向(含自身)
-    const cost = main + (overlap ? off * 0.3 : off * 2)
+    // 非重叠的副轴错位惩罚只比重叠略高(0.5 vs 0.3),而不是 2x:
+    // 否则当源宽(如搜索框)而目标的可聚焦按钮偏右侧时,远处但水平重叠的元素(如居中的翻页按钮)
+    // 会击败近邻一行的按钮(卡片操作按钮),DPad 跳到不直观的远处。
+    const cost = main + (overlap ? off * 0.3 : off * 0.5)
     if (cost < bestCost) {
       bestCost = cost
       best = el
@@ -177,7 +180,7 @@ function activate(el: HTMLElement): void {
   el.click()
 }
 
-/** 焦点是否落在"正在打字"的文本输入上(此时上下/确定让位原生)。 */
+/** 焦点是否落在文本输入上(左右键、退格让位原生编辑/光标)。 */
 function isTextEntry(el: Element | null): boolean {
   if (!(el instanceof HTMLElement)) return false
   if (el.isContentEditable) return true
@@ -186,6 +189,14 @@ function isTextEntry(el: Element | null): boolean {
     const t = el.type
     return t === 'text' || t === 'search' || t === 'number' || t === 'password' || t === 'email' || t === 'url'
   }
+  return false
+}
+
+/** 是否多行文本输入(textarea / contenteditable):此时上下键也是光标移动,不参与导航。 */
+function isMultilineTextEntry(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false
+  if (el.isContentEditable) return true
+  if (el instanceof HTMLTextAreaElement) return true
   return false
 }
 
@@ -244,16 +255,18 @@ function onKeyDown(e: KeyboardEvent): void {
   const top = topInstance()
   if (!top) return
   const active = document.activeElement
+  // 单行文本框(search/text/...)只挡住左右(光标)、退格、回车;上下让位给导航,否则 TV 上焦点会卡在输入框/select 里。
   const typing = isTextEntry(active)
+  const multilineTyping = isMultilineTextEntry(active)
 
   switch (e.key) {
     case 'ArrowUp':
-      if (typing) return
+      if (multilineTyping) return
       e.preventDefault()
       top.move('up')
       return
     case 'ArrowDown':
-      if (typing) return
+      if (multilineTyping) return
       e.preventDefault()
       top.move('down')
       return
@@ -287,7 +300,9 @@ function ensureGlobalListeners(): void {
   if (listening) return
   if (typeof window === 'undefined') return
   listening = true
-  window.addEventListener('keydown', onKeyDown)
+  // 用 capture 阶段:在元素默认行为(<select> 上下切选项 / 文本框光标移动)之前 preventDefault,
+  // 否则即便我们调用了 move() 把焦点移走,select 的选项也已经被切到下一项,左右键调值会"双重生效"。
+  window.addEventListener('keydown', onKeyDown, true)
   rafId = requestAnimationFrame(pollPads)
 }
 
@@ -296,7 +311,7 @@ function teardownGlobalListeners(): void {
   // 仍有实例存活则保留(可能只是暂时无活跃实例)。
   if (instances.length > 0) return
   listening = false
-  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keydown', onKeyDown, true)
   if (rafId) cancelAnimationFrame(rafId)
   rafId = 0
 }
