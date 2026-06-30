@@ -1,6 +1,5 @@
 import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { GAMEPAD_AXIS_THRESHOLD } from '../emulator/settings'
-import { isTv } from '../emulator/platform'
 
 // ===== Android TV 遥控器 / 手柄的统一 UI 焦点导航 =====
 // 几何空间导航:DPAD 方向上,在容器内的可聚焦元素中按真实矩形找最近邻并 .focus()。
@@ -12,9 +11,19 @@ import { isTv } from '../emulator/platform'
 
 type Dir = 'up' | 'down' | 'left' | 'right'
 
-// 是否检测到已连接手柄(经 gamepadconnected/disconnected 维护)。
-// UI 导航启用条件 = TV(遥控器)或已连手柄 —— 插上手柄即可完全替代遥控器操作 UI,
-// 也避免 isTv 检测在某些电视盒子上误判导致手柄无法导航。
+// ===== 输入模态检测:不靠 UA,靠"用户当前用什么输入"决定是否进入导航模式 =====
+// 一旦检测到方向键/确定键(键盘 ↑↓←→/Enter、遥控器映射来的同名键)按下,即进入导航模式;
+// 检测到鼠标移动/点击或触摸,则退回指针模式。任何设备(电视/盒子/连手柄的桌面)都适用。
+export const navMode = ref(false)
+const NAV_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Enter', 'NumpadEnter'])
+function onModeKey(e: KeyboardEvent): void {
+  if (NAV_KEYS.has(e.key)) navMode.value = true
+}
+function onModePointer(): void {
+  navMode.value = false
+}
+
+// 是否检测到已连接手柄(连上即视为导航模式,无需先按键)。
 export const hasGamepad = ref(false)
 function refreshHasGamepad(): void {
   const pads =
@@ -22,12 +31,17 @@ function refreshHasGamepad(): void {
   hasGamepad.value = Array.from(pads).some((p) => !!p)
 }
 if (typeof window !== 'undefined') {
+  // capture 阶段先拿到输入信号(只设标志,不阻断事件,不影响游戏/组件后续处理)。
+  window.addEventListener('keydown', onModeKey, true)
+  window.addEventListener('mousemove', onModePointer, true)
+  window.addEventListener('mousedown', onModePointer, true)
+  window.addEventListener('touchstart', onModePointer, true)
   window.addEventListener('gamepadconnected', refreshHasGamepad)
   window.addEventListener('gamepaddisconnected', refreshHasGamepad)
 }
 
-/** UI 焦点导航是否启用:TV 环境 或 已连手柄。供各组件门控 active 与焦点环。 */
-export const navEnabled = computed(() => isTv || hasGamepad.value)
+/** UI 焦点导航是否启用:已进入导航模式(按过方向键)或已连手柄。供门控 active 与焦点环。 */
+export const navEnabled = computed(() => navMode.value || hasGamepad.value)
 
 export interface RemoteNavOptions {
   /** 只在此容器内查找可聚焦元素。 */

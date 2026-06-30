@@ -23,21 +23,7 @@ import {
   TURBO_TARGET,
   type Aspect,
 } from '../emulator/settings'
-import { isTv } from '../emulator/platform'
 
-// Android TV 遥控器游戏内映射(仅 TV 启用,不影响桌面键盘):
-// 方向键→玩家1 十字键,确定键(Enter)→A;BACK 由 onKeyDown 单独处理为"暂停/打开菜单"。
-// 遥控器物理键有限(无 B/Start/Select),完整游玩仍建议连蓝牙手柄。
-const TV_REMOTE_MAP: Record<string, PadButton> = isTv
-  ? {
-      ArrowUp: PadButton.Up,
-      ArrowDown: PadButton.Down,
-      ArrowLeft: PadButton.Left,
-      ArrowRight: PadButton.Right,
-      Enter: PadButton.A,
-      NumpadEnter: PadButton.A,
-    }
-  : {}
 
 // inputLocked:模态(游戏库/设置)打开时为真,此时不把输入喂给游戏。
 // romKey/romName:当前载入卡带的稳定标识与显示名,用于把存档绑定到对应游戏。
@@ -165,20 +151,12 @@ function isTypingTarget(e: KeyboardEvent): boolean {
 function onKeyDown(e: KeyboardEvent) {
   if (isTypingTarget(e)) return // 正在输入框打字,不抢按键
   if (props.inputLocked) return // 模态接管,游戏不收输入
-  // Android TV 遥控器(仅 isTv):BACK→暂停/菜单,方向→玩家1 十字键,确定(Enter)→A。
-  // 必须在 codeToAction 之前覆盖(否则方向键命中玩家2、Enter 命中玩家1 Start)。
-  if (isTv) {
-    if (e.code === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') {
-      e.preventDefault()
-      if (!e.repeat) emit('systemAction', 'toggle-pause')
-      return
-    }
-    const tvBtn = TV_REMOTE_MAP[e.code]
-    if (tvBtn !== undefined) {
-      e.preventDefault()
-      pressPad(0, tvBtn)
-      return
-    }
+  // 返回键(遥控器 BACK / Backspace / GoBack):交 App 分级返回(游戏中→停止游戏回主界面)。
+  // 不区分平台:这些键在桌面游戏中本就空闲,无副作用;方向键照常落给 codeToAction(玩家)。
+  if (e.code === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') {
+    e.preventDefault()
+    if (!e.repeat) emit('systemAction', 'back')
+    return
   }
   // 应用级快捷键:修饰键由 modifier 决定(桌面 Ctrl / 浏览器 Shift,避开浏览器占用键)。
   // S=存档,L=读档,N=新建存档,A=存档列表,G=游戏库,P=暂停,F=全屏;Esc 也可暂停。
@@ -228,14 +206,6 @@ function onKeyDown(e: KeyboardEvent) {
 function onKeyUp(e: KeyboardEvent) {
   if (isTypingTarget(e)) return
   if (props.inputLocked) return
-  if (isTv) {
-    const tvBtn = TV_REMOTE_MAP[e.code]
-    if (tvBtn !== undefined) {
-      e.preventDefault()
-      releasePad(0, tvBtn)
-      return
-    }
-  }
   const a = codeToAction.value[e.code]
   if (!a) return
   e.preventDefault()

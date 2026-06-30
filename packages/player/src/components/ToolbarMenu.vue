@@ -5,8 +5,7 @@
  * 菜单项请用 class="menu-item"(可含 <kbd> 显示快捷键),样式由本组件经 :slotted 提供。
  */
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { isTv } from '../emulator/platform'
-import { useRemoteNav } from '../composables/useRemoteNav'
+import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 
 defineProps<{ label: string }>()
 
@@ -17,7 +16,7 @@ const btn = ref<HTMLElement | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
 useRemoteNav({
   container: dropdownRef,
-  active: computed(() => isTv && open.value),
+  active: computed(() => navEnabled.value && open.value),
   onBack: close,
   autoFocus: true,
   priority: 20,

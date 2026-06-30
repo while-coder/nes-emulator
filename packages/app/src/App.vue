@@ -12,7 +12,6 @@ import {
   ToolbarMenu,
   settings,
   sha256Hex,
-  isTv,
   navEnabled,
   hasGamepad,
   useRemoteNav,
@@ -47,7 +46,7 @@ const toolbarNavActive = computed(
 useRemoteNav({
   container: toolbarRef,
   active: toolbarNavActive,
-  autoFocus: isTv,
+  autoFocus: true,
   priority: 0,
   onBack: handleBack, // 主界面返回键 → 分级返回(此处即直接退出 app)
 })
@@ -263,7 +262,7 @@ onBeforeUnmount(() => {
     <footer class="footer">
       <span class="keys">键盘 {{ keyHint }}</span>
       <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
-      <span v-if="isTv" class="tv-tip">遥控器可操作菜单与基础游玩,完整体验建议连接蓝牙手柄</span>
+      <span v-if="navEnabled && !hasGamepad" class="tv-tip">游戏操作需连接手柄;遥控器用于菜单导航,返回键退出</span>
       <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri App' : '浏览器预览' }}</span>
     </footer>
   </div>

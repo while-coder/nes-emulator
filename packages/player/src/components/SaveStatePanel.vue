@@ -10,8 +10,7 @@ import {
   saveKindOf,
   type SaveStateRecord,
 } from '../store/saveState'
-import { isTv } from '../emulator/platform'
-import { useRemoteNav } from '../composables/useRemoteNav'
+import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 
 // 读档时交回父组件应用到引擎的载荷:带 bytes 表示需先载入对应游戏,
 // 不带 bytes 表示当前已是该游戏、直接套用状态即可。
@@ -45,7 +44,7 @@ const editingText = ref('')
 const panelRef = ref<HTMLElement | null>(null)
 useRemoteNav({
   container: panelRef,
-  active: computed(() => isTv && open.value),
+  active: computed(() => navEnabled.value && open.value),
   onBack: () => {
     if (busyKey.value === null) open.value = false
   },

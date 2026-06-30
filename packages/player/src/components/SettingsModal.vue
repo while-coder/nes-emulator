@@ -17,7 +17,6 @@ import {
   type Aspect,
   type TouchPadMode,
 } from '../emulator/settings'
-import { isTv } from '../emulator/platform'
 import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 
 const open = defineModel<boolean>('open', { default: false })
@@ -179,7 +178,7 @@ useRemoteNav({
     () => navEnabled.value && open.value && capturing.value === null && capturingPad.value === null,
   ),
   onBack: close,
-  autoFocus: isTv,
+  autoFocus: true,
   priority: 10,
 })
 
