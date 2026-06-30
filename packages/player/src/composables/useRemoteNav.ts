@@ -1,5 +1,6 @@
-import { onBeforeUnmount, watch, type Ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, type Ref } from 'vue'
 import { GAMEPAD_AXIS_THRESHOLD } from '../emulator/settings'
+import { isTv } from '../emulator/platform'
 
 // ===== Android TV 遥控器 / 手柄的统一 UI 焦点导航 =====
 // 几何空间导航:DPAD 方向上,在容器内的可聚焦元素中按真实矩形找最近邻并 .focus()。
@@ -10,6 +11,23 @@ import { GAMEPAD_AXIS_THRESHOLD } from '../emulator/settings'
 // 同时活跃时只有 priority 最高者收按键 —— 模态一开自动夺取按键,关闭后回落工具栏。
 
 type Dir = 'up' | 'down' | 'left' | 'right'
+
+// 是否检测到已连接手柄(经 gamepadconnected/disconnected 维护)。
+// UI 导航启用条件 = TV(遥控器)或已连手柄 —— 插上手柄即可完全替代遥控器操作 UI,
+// 也避免 isTv 检测在某些电视盒子上误判导致手柄无法导航。
+export const hasGamepad = ref(false)
+function refreshHasGamepad(): void {
+  const pads =
+    typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
+  hasGamepad.value = Array.from(pads).some((p) => !!p)
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('gamepadconnected', refreshHasGamepad)
+  window.addEventListener('gamepaddisconnected', refreshHasGamepad)
+}
+
+/** UI 焦点导航是否启用:TV 环境 或 已连手柄。供各组件门控 active 与焦点环。 */
+export const navEnabled = computed(() => isTv || hasGamepad.value)
 
 export interface RemoteNavOptions {
   /** 只在此容器内查找可聚焦元素。 */

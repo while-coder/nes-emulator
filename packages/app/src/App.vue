@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
+import { exit } from '@tauri-apps/plugin-process'
 import {
   PAD_BUTTON_LIST,
   codeLabel,
@@ -12,6 +13,8 @@ import {
   settings,
   sha256Hex,
   isTv,
+  navEnabled,
+  hasGamepad,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
@@ -39,17 +42,20 @@ const inputLocked = computed(
 // 游戏运行中则交还 NesScreen(方向键控制角色)。开机未载入时自动聚焦,解决"无入口"问题。
 const toolbarRef = ref<HTMLElement | null>(null)
 const toolbarNavActive = computed(
-  () => isTv && !inputLocked.value && (!romName.value || paused.value),
+  () => navEnabled.value && !inputLocked.value && (!romName.value || paused.value),
 )
 useRemoteNav({
   container: toolbarRef,
   active: toolbarNavActive,
   autoFocus: isTv,
   priority: 0,
+  onBack: handleBack, // 主界面返回键 → 分级返回(此处即直接退出 app)
 })
-// 焦点环作用到全局(含 Teleport 到 body 的下拉菜单):给 <html> 标记 tv-nav。
-if (isTv && typeof document !== 'undefined') {
-  document.documentElement.classList.add('tv-nav')
+// 焦点环作用到全局(含 Teleport 到 body 的下拉菜单):TV 或已连手柄时给 <html> 标记 tv-nav。
+if (typeof document !== 'undefined') {
+  watchEffect(() => {
+    document.documentElement.classList.toggle('tv-nav', navEnabled.value)
+  })
 }
 
 // 快捷键修饰键:桌面(Tauri)用 Ctrl,浏览器用 Shift(避开 Ctrl+L/N 等浏览器冲突)。
@@ -139,7 +145,7 @@ function toggleAudio() {
   screen.value?.setAudioEnabled(audioOn.value)
 }
 
-// 来自 NesScreen 的应用级快捷键(手柄空闲键 / 键盘):暂停-继续、打开游戏库。
+// 来自 NesScreen 的应用级快捷键(手柄空闲键 / 键盘):暂停-继续、打开游戏库、返回键。
 function onSystemAction(action: string) {
   if (action === 'toggle-pause') {
     if (romName.value) togglePause()
@@ -147,12 +153,58 @@ function onSystemAction(action: string) {
     storeOpen.value = true
   } else if (action === 'open-saves') {
     savesOpen.value = true
+  } else if (action === 'back') {
+    handleBack()
   }
 }
+
+// 返回键分级返回:面板打开→关面板;游戏中→停止游戏回主界面;主界面→直接退出 app。
+// 汇聚遥控器/手柄 BACK(经各 useRemoteNav.onBack 与 NesScreen 的 'back')与物理返回键(popstate)。
+function handleBack() {
+  if (helpOpen.value) helpOpen.value = false
+  else if (settingsOpen.value) settingsOpen.value = false
+  else if (savesOpen.value) savesOpen.value = false
+  else if (storeOpen.value) storeOpen.value = false
+  else if (romName.value) stopRom()
+  else void exitApp()
+}
+
+// 退出 app:Tauri 用 process 插件 exit(0);浏览器预览降级 window.close()(失败静默)。
+async function exitApp() {
+  if (isTauri) {
+    try {
+      await exit(0)
+    } catch (err) {
+      console.warn('[app] 退出失败', err)
+    }
+  } else {
+    window.close()
+  }
+}
+
+// 物理返回键(Android):Tauri 无官方拦截 API,用 history 占位 + popstate 捕获物理返回,
+// 转交分级返回。仅 Tauri 环境启用,避免干扰浏览器预览的前进/后退。
+// 注:目标设备的 WebView 若不把物理返回映射到 history.back,此路径可能失效(需原生兜底)。
+function onPopState() {
+  handleBack()
+  // 维持占位,使下一次物理返回仍触发 popstate(若已 exit 则页面已销毁)。
+  history.pushState(null, '', location.href)
+}
+onMounted(() => {
+  if (isTauri && typeof window !== 'undefined') {
+    history.pushState(null, '', location.href)
+    window.addEventListener('popstate', onPopState)
+  }
+})
+onBeforeUnmount(() => {
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('popstate', onPopState)
+  }
+})
 </script>
 
 <template>
-  <div class="app" :class="{ 'tv-nav': isTv }">
+  <div class="app" :class="{ 'tv-nav': navEnabled }">
     <header ref="toolbarRef" class="toolbar">
       <h1 class="title">NES/FC 模拟器</h1>
       <div class="spacer" />

@@ -18,7 +18,7 @@ import {
   type TouchPadMode,
 } from '../emulator/settings'
 import { isTv } from '../emulator/platform'
-import { useRemoteNav } from '../composables/useRemoteNav'
+import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -176,10 +176,10 @@ const panelRef = ref<HTMLElement | null>(null)
 useRemoteNav({
   container: panelRef,
   active: computed(
-    () => isTv && open.value && capturing.value === null && capturingPad.value === null,
+    () => navEnabled.value && open.value && capturing.value === null && capturingPad.value === null,
   ),
   onBack: close,
-  autoFocus: true,
+  autoFocus: isTv,
   priority: 10,
 })
 

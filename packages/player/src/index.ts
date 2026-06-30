@@ -7,6 +7,8 @@ export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
 export { isAndroid, isTv } from './emulator/platform'
 export {
   useRemoteNav,
+  navEnabled,
+  hasGamepad,
   type RemoteNavApi,
   type RemoteNavOptions,
 } from './composables/useRemoteNav'

@@ -12,8 +12,10 @@ import {
 import {
   buildCodeToButton,
   buildPadToButton,
+  ensurePadProfile,
   isPadSignalActive,
   isTurbo,
+  listGamepads,
   PadButton,
   padmapFor,
   runnerButton,
@@ -375,6 +377,16 @@ function releaseAllGameInput() {
   padActive.forEach((s) => s.clear())
 }
 
+// 手柄即插即用:检测到手柄且玩家1未绑定时,自动把首个手柄绑给玩家1并建立默认映射,
+// 免去进设置手动分配(用户之后仍可在设置里改绑)。
+function autoBindGamepad() {
+  if (settings.players[0].gamepadIndex !== null) return
+  const pads = listGamepads()
+  if (pads.length === 0) return
+  settings.players[0].gamepadIndex = pads[0].index
+  ensurePadProfile(pads[0].id)
+}
+
 function pollGamepads() {
   padRaf = requestAnimationFrame(pollGamepads)
   if (!runner) return
@@ -463,6 +475,8 @@ onMounted(() => {
   runner.setSpeed(settings.misc.speed)
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('gamepadconnected', autoBindGamepad)
+  autoBindGamepad() // 进入时已连手柄则立即绑定
   padRaf = requestAnimationFrame(pollGamepads)
   ro = new ResizeObserver(() => applyDisplaySize())
   if (wrapRef.value) ro.observe(wrapRef.value)
@@ -472,6 +486,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
+  window.removeEventListener('gamepadconnected', autoBindGamepad)
   if (padRaf) cancelAnimationFrame(padRaf)
   padRaf = 0
   if (turboTimer) clearInterval(turboTimer)
