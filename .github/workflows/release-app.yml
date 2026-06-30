@@ -35,11 +35,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -63,7 +66,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Resolve release body
         id: notes
@@ -97,11 +100,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
 
       - uses: actions/setup-java@v4
         with:
@@ -128,7 +134,7 @@ jobs:
           restore-keys: |
             android-cargo-app-
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Decode Android keystore
         env:
@@ -153,7 +159,7 @@ jobs:
             echo "::error::ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, and ANDROID_KEYSTORE_PASSWORD secrets are required"
             exit 1
           fi
-          npm run android:build -- --apk --aab
+          pnpm run android:build -- --apk --aab
 
       - name: Package Android artifacts
         id: package
@@ -192,11 +198,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
-          cache-dependency-path: package-lock.json
+          cache: pnpm
 
       - name: Install Rust with iOS targets
         uses: dtolnay/rust-toolchain@stable
@@ -214,18 +223,18 @@ jobs:
           restore-keys: |
             ios-cargo-app-
 
-      - run: npm ci
+      - run: pnpm install --frozen-lockfile
 
       - name: Initialize iOS project
         shell: bash
         run: |
           if [ ! -d packages/app/src-tauri/gen/apple ]; then
-            npm run tauri --workspace @nes-emulator/app -- ios init --ci
+            pnpm --filter @nes-emulator/app run tauri -- ios init --ci
           fi
 
       - name: Build iOS app
         working-directory: packages/app
-        run: npm run ios:build -- --ci --export-method release-testing
+        run: pnpm run ios:build -- --ci --export-method release-testing
 
       - name: Package iOS artifacts
         id: package

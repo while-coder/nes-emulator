@@ -1,19 +1,22 @@
 {
   "name": "nes-emulator-workspace",
   "private": true,
-  "workspaces": [
-    "packages/*"
-  ],
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "dev": "npm run dev:web",
-    "dev:web": "npm run dev --workspace @nes-emulator/web",
-    "dev:app": "npm run dev --workspace @nes-emulator/app",
-    "build:web": "npm run build --workspace @nes-emulator/web",
-    "build:app": "npm run build --workspace @nes-emulator/app",
-    "android:init": "npm run android:init --workspace @nes-emulator/app",
-    "android:dev": "npm run android:dev --workspace @nes-emulator/app",
-    "android:build": "npm run android:build --workspace @nes-emulator/app",
-    "ios:dev": "npm run ios:dev --workspace @nes-emulator/app",
-    "ios:build": "npm run ios:build --workspace @nes-emulator/app"
+    "dev": "pnpm run dev:web",
+    "dev:web": "pnpm --filter @nes-emulator/web run dev",
+    "dev:app": "pnpm --filter @nes-emulator/app run dev",
+    "build:web": "pnpm --filter @nes-emulator/web run build",
+    "build:app": "pnpm --filter @nes-emulator/app run build",
+    "android:init": "pnpm --filter @nes-emulator/app run android:init",
+    "android:dev": "pnpm --filter @nes-emulator/app run android:dev",
+    "android:build": "pnpm --filter @nes-emulator/app run android:build",
+    "ios:dev": "pnpm --filter @nes-emulator/app run ios:dev",
+    "ios:build": "pnpm --filter @nes-emulator/app run ios:build"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
   }
 }

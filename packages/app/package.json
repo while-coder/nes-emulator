@@ -17,15 +17,15 @@
     "ios:build": "tauri ios build"
   },
   "dependencies": {
-    "@nes-emulator/player": "0.1.0",
+    "@nes-emulator/player": "workspace:*",
     "@tauri-apps/plugin-process": "^2.3.1",
-    "vue": "^3.5.13"
+    "vue": "catalog:"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.3",
-    "@vitejs/plugin-vue": "^5.2.1",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.7",
-    "vue-tsc": "^2.2.0"
+    "@vitejs/plugin-vue": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vue-tsc": "catalog:"
   }
 }

@@ -9,11 +9,11 @@
 
 ## Build
 
-- `npm install`: install workspace dependencies.
-- `npm run sync:rom-catalog --workspace @nes-emulator/web`: sync the ROM catalog into `packages/web/public/catalog.json`. By default it uses `E:\nes-roms\catalog.json` when present, otherwise it fetches the remote GitHub raw catalog.
-- `npm run build --workspace @nes-emulator/web`: build the standalone Web app.
-- `npm run build:frontend --workspace @nes-emulator/app`: build the App frontend into `packages/app/dist`.
-- `npm run build --workspace @nes-emulator/app`: build the Tauri app shell, using `packages/app/dist`.
+- `pnpm install`: install workspace dependencies.
+- `pnpm --filter @nes-emulator/web run sync:rom-catalog`: sync the ROM catalog into `packages/web/public/catalog.json`. By default it uses `E:\nes-roms\catalog.json` when present, otherwise it fetches the remote GitHub raw catalog.
+- `pnpm --filter @nes-emulator/web run build`: build the standalone Web app.
+- `pnpm --filter @nes-emulator/app run build:frontend`: build the App frontend into `packages/app/dist`.
+- `pnpm --filter @nes-emulator/app run build`: build the Tauri app shell, using `packages/app/dist`.
 
 ## ROM catalog
 
