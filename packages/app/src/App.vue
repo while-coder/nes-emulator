@@ -31,6 +31,10 @@ const settingsOpen = ref(false)
 const storeOpen = ref(false)
 const savesOpen = ref(false)
 const helpOpen = ref(false)
+// 主界面返回键二次确认:首次按只飘字提示,2s 内再按才真退出,避免遥控器误触退出。
+const exitHintVisible = ref(false)
+let exitArmedAt = 0
+let exitHintTimer: ReturnType<typeof setTimeout> | null = null
 
 // 模态(游戏库/设置/存档列表/快捷键)打开时锁住游戏输入,改由模态接管手柄/键盘导航。
 const inputLocked = computed(
@@ -157,15 +161,31 @@ function onSystemAction(action: string) {
   }
 }
 
-// 返回键分级返回:面板打开→关面板;游戏中→停止游戏回主界面;主界面→直接退出 app。
+// 返回键分级返回:面板打开→关面板;游戏中→停止游戏回主界面;主界面→飘字+二次确认才退出。
 // 汇聚遥控器/手柄 BACK(经各 useRemoteNav.onBack 与 NesScreen 的 'back')与物理返回键(popstate)。
+const EXIT_CONFIRM_MS = 2000
 function handleBack() {
   if (helpOpen.value) helpOpen.value = false
   else if (settingsOpen.value) settingsOpen.value = false
   else if (savesOpen.value) savesOpen.value = false
   else if (storeOpen.value) storeOpen.value = false
   else if (romName.value) stopRom()
-  else void exitApp()
+  else {
+    const now = Date.now()
+    if (now - exitArmedAt < EXIT_CONFIRM_MS) {
+      if (exitHintTimer) { clearTimeout(exitHintTimer); exitHintTimer = null }
+      exitHintVisible.value = false
+      void exitApp()
+      return
+    }
+    exitArmedAt = now
+    exitHintVisible.value = true
+    if (exitHintTimer) clearTimeout(exitHintTimer)
+    exitHintTimer = setTimeout(() => {
+      exitHintVisible.value = false
+      exitHintTimer = null
+    }, EXIT_CONFIRM_MS)
+  }
 }
 
 // 退出 app:Tauri 用 process 插件 exit(0);浏览器预览降级 window.close()(失败静默)。
@@ -199,6 +219,7 @@ onBeforeUnmount(() => {
   if (typeof window !== 'undefined') {
     window.removeEventListener('popstate', onPopState)
   }
+  if (exitHintTimer) clearTimeout(exitHintTimer)
 })
 </script>
 
@@ -258,6 +279,10 @@ onBeforeUnmount(() => {
       />
       <p v-if="!romName" class="hint">打开本地 .nes 文件开始游戏</p>
     </main>
+
+    <Transition name="toast">
+      <div v-if="exitHintVisible" class="exit-hint" role="status">再按一次返回键退出</div>
+    </Transition>
 
     <footer class="footer">
       <span class="keys">键盘 {{ keyHint }}</span>
@@ -410,5 +435,28 @@ body {
 }
 .link-btn:hover {
   text-decoration: underline;
+}
+.exit-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  font-size: 14px;
+  letter-spacing: 0.3px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 1000;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 0.18s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
 }
 </style>
