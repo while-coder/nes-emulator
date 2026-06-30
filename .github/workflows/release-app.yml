@@ -1,0 +1,279 @@
+name: Release App
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-app-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+            rust-target: aarch64-apple-darwin
+          - platform: macos-latest
+            args: '--target x86_64-apple-darwin'
+            rust-target: x86_64-apple-darwin
+          - platform: ubuntu-22.04
+            args: ''
+            rust-target: ''
+          - platform: windows-latest
+            args: ''
+            rust-target: ''
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/app/src-tauri/target
+          key: ${{ matrix.platform }}-cargo-app-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.platform }}-cargo-app-
+
+      - name: Install Linux deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - run: npm ci
+
+      - name: Resolve release body
+        id: notes
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./packages/app/package.json').version")"
+          fi
+          {
+            echo "body<<RELEASE_NOTES_EOF"
+            echo "Release $VERSION"
+            echo "RELEASE_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: packages/app
+          tagName: v__VERSION__
+          releaseName: 'nes-emulator v__VERSION__'
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  release-android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.0.12077973'
+
+      - name: Install Rust with Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/app/src-tauri/target
+          key: android-cargo-app-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            android-cargo-app-
+
+      - run: npm ci
+
+      - name: Decode Android keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 secret is required"
+            exit 1
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+
+      - name: Build Android APK and AAB
+        working-directory: packages/app
+        env:
+          NDK_HOME: ${{ env.ANDROID_NDK_ROOT }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEY_ALIAS" ] || [ -z "$ANDROID_KEY_PASSWORD" ] || [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::error::ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD, and ANDROID_KEYSTORE_PASSWORD secrets are required"
+            exit 1
+          fi
+          npm run android:build -- --apk --aab
+
+      - name: Package Android artifacts
+        id: package
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./packages/app/package.json').version")"
+          fi
+          mkdir -p artifacts
+          cp packages/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk \
+            "artifacts/nes-emulator_${VERSION}_universal.apk"
+          cp packages/app/src-tauri/gen/android/app/build/outputs/bundle/universalRelease/*.aab \
+            "artifacts/nes-emulator_${VERSION}_universal.aab"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Android artifacts to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: nes-emulator v${{ steps.package.outputs.version }}
+          draft: true
+          files: artifacts/*
+
+      - name: Upload Android artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nes-emulator-android
+          path: artifacts/*
+
+  release-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install Rust with iOS targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/app/src-tauri/target
+          key: ios-cargo-app-${{ hashFiles('packages/app/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ios-cargo-app-
+
+      - run: npm ci
+
+      - name: Initialize iOS project
+        shell: bash
+        run: |
+          if [ ! -d packages/app/src-tauri/gen/apple ]; then
+            npm run tauri --workspace @nes-emulator/app -- ios init --ci
+          fi
+
+      - name: Build iOS app
+        working-directory: packages/app
+        run: npm run ios:build -- --ci --export-method release-testing
+
+      - name: Package iOS artifacts
+        id: package
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="$(node -p "require('./packages/app/package.json').version")"
+          fi
+          mkdir -p artifacts
+
+          while IFS= read -r file; do
+            cp "$file" "artifacts/nes-emulator_${VERSION}_$(basename "$file")"
+          done < <(find packages/app/src-tauri/gen/apple -type f -name "*.ipa" 2>/dev/null)
+
+          mapfile -t archives < <(find packages/app/src-tauri/gen/apple -type d -name "*.xcarchive" 2>/dev/null)
+          if [ "${#archives[@]}" -gt 0 ]; then
+            for archive in "${archives[@]}"; do
+              ditto -c -k --sequesterRsrc --keepParent "$archive" \
+                "artifacts/nes-emulator_${VERSION}_$(basename "$archive").zip"
+            done
+          else
+            while IFS= read -r app; do
+              ditto -c -k --sequesterRsrc --keepParent "$app" \
+                "artifacts/nes-emulator_${VERSION}_$(basename "$app").zip"
+            done < <(find packages/app/src-tauri/gen/apple -type d -name "*.app" 2>/dev/null)
+          fi
+
+          if ! compgen -G "artifacts/*" > /dev/null; then
+            echo "::error::No iOS artifacts were found"
+            find packages/app/src-tauri/gen/apple -maxdepth 5 \( -type f -o -type d \)
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Upload iOS artifacts to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: nes-emulator v${{ steps.package.outputs.version }}
+          draft: true
+          files: artifacts/*
+
+      - name: Upload iOS artifacts
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: nes-emulator-ios
+          path: artifacts/*
