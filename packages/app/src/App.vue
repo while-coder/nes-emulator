@@ -11,6 +11,8 @@ import {
   ToolbarMenu,
   settings,
   sha256Hex,
+  isTv,
+  useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
 import { isTauri, pickRomFile, storage } from './emulator/platform'
@@ -32,6 +34,23 @@ const helpOpen = ref(false)
 const inputLocked = computed(
   () => storeOpen.value || settingsOpen.value || savesOpen.value || helpOpen.value,
 )
+
+// Android TV 遥控器:工具栏焦点导航。无模态、且(未载入或已暂停)时由工具栏接管方向键;
+// 游戏运行中则交还 NesScreen(方向键控制角色)。开机未载入时自动聚焦,解决"无入口"问题。
+const toolbarRef = ref<HTMLElement | null>(null)
+const toolbarNavActive = computed(
+  () => isTv && !inputLocked.value && (!romName.value || paused.value),
+)
+useRemoteNav({
+  container: toolbarRef,
+  active: toolbarNavActive,
+  autoFocus: isTv,
+  priority: 0,
+})
+// 焦点环作用到全局(含 Teleport 到 body 的下拉菜单):给 <html> 标记 tv-nav。
+if (isTv && typeof document !== 'undefined') {
+  document.documentElement.classList.add('tv-nav')
+}
 
 // 快捷键修饰键:桌面(Tauri)用 Ctrl,浏览器用 Shift(避开 Ctrl+L/N 等浏览器冲突)。
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
@@ -133,8 +152,8 @@ function onSystemAction(action: string) {
 </script>
 
 <template>
-  <div class="app">
-    <header class="toolbar">
+  <div class="app" :class="{ 'tv-nav': isTv }">
+    <header ref="toolbarRef" class="toolbar">
       <h1 class="title">NES/FC 模拟器</h1>
       <div class="spacer" />
       <button class="btn" :disabled="loading" @click="openRom">
@@ -180,7 +199,7 @@ function onSystemAction(action: string) {
     <main class="stage">
       <NesScreen
         ref="screen"
-        :input-locked="inputLocked"
+        :input-locked="inputLocked || paused"
         :modifier="modKey"
         :rom-key="romKey"
         :rom-name="romName"
@@ -192,6 +211,7 @@ function onSystemAction(action: string) {
     <footer class="footer">
       <span class="keys">键盘 {{ keyHint }}</span>
       <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
+      <span v-if="isTv" class="tv-tip">遥控器可操作菜单与基础游玩,完整体验建议连接蓝牙手柄</span>
       <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri App' : '浏览器预览' }}</span>
     </footer>
   </div>
@@ -215,6 +235,20 @@ body {
   color: #e8e8e8;
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
   overflow: hidden;
+}
+/* Android TV 遥控器焦点环:仅 TV(<html>.tv-nav)启用,桌面键鼠不受影响。
+   补 :focus 兜底,因部分 Android WebView 对 button 不触发 :focus-visible。 */
+.tv-nav :focus-visible,
+.tv-nav button:focus,
+.tv-nav a:focus,
+.tv-nav input:focus,
+.tv-nav select:focus,
+.tv-nav textarea:focus,
+.tv-nav [tabindex]:focus,
+.tv-nav [data-nav]:focus {
+  outline: 3px solid #4ea1ff;
+  outline-offset: 2px;
+  border-radius: 6px;
 }
 </style>
 
@@ -311,6 +345,9 @@ body {
 .footer .meta {
   color: #777;
   margin-left: auto;
+}
+.footer .tv-tip {
+  color: #6ab0ff;
 }
 .link-btn {
   border: none;

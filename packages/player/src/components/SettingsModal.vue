@@ -17,6 +17,8 @@ import {
   type Aspect,
   type TouchPadMode,
 } from '../emulator/settings'
+import { isTv } from '../emulator/platform'
+import { useRemoteNav } from '../composables/useRemoteNav'
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -168,6 +170,19 @@ function close() {
   open.value = false
 }
 
+// Android TV 遥控器:设置面板内焦点导航(tab/玩家切换/改键/各控件/关闭)。
+// 改键捕获态(capturing / capturingPad)时让位 —— 此时键盘/手柄全交给捕获逻辑。
+const panelRef = ref<HTMLElement | null>(null)
+useRemoteNav({
+  container: panelRef,
+  active: computed(
+    () => isTv && open.value && capturing.value === null && capturingPad.value === null,
+  ),
+  onBack: close,
+  autoFocus: true,
+  priority: 10,
+})
+
 const volumePct = computed({
   get: () => Math.round(settings.audio.volume * 100),
   set: (v: number) => {
@@ -202,7 +217,7 @@ onBeforeUnmount(() => {
     @click.self="close"
     @keydown="onOverlayKey"
   >
-    <div class="panel" role="dialog" aria-label="设置">
+    <div ref="panelRef" class="panel" role="dialog" aria-label="设置">
       <header class="panel-head">
         <h2>设置</h2>
         <button class="x" @click="close">✕</button>

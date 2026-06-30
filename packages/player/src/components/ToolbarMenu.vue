@@ -4,13 +4,24 @@
  * 点击外部或按 Esc 自动收起;点击任一菜单项后也收起(slot 内容冒泡到容器触发 close)。
  * 菜单项请用 class="menu-item"(可含 <kbd> 显示快捷键),样式由本组件经 :slotted 提供。
  */
-import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { isTv } from '../emulator/platform'
+import { useRemoteNav } from '../composables/useRemoteNav'
 
 defineProps<{ label: string }>()
 
 const open = ref(false)
 const root = ref<HTMLElement | null>(null)
 const btn = ref<HTMLElement | null>(null)
+// 下拉(Teleport 到 body)的遥控器焦点导航:打开时自动聚焦首项,方向键切项,OK 选中(冒泡触发 close)。
+const dropdownRef = ref<HTMLElement | null>(null)
+useRemoteNav({
+  container: dropdownRef,
+  active: computed(() => isTv && open.value),
+  onBack: close,
+  autoFocus: true,
+  priority: 20,
+})
 // 下拉用 Teleport 挂到 body,避免被工具栏的 overflow:auto 裁剪;打开时按触发按钮定位。
 const pos = ref({ top: 0, left: 0 })
 
@@ -49,6 +60,7 @@ onBeforeUnmount(() => {
     <Teleport to="body">
       <div
         v-if="open"
+        ref="dropdownRef"
         class="dropdown"
         :style="{ top: pos.top + 'px', left: pos.left + 'px' }"
         @click="close"

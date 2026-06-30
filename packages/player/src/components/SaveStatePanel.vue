@@ -10,6 +10,8 @@ import {
   saveKindOf,
   type SaveStateRecord,
 } from '../store/saveState'
+import { isTv } from '../emulator/platform'
+import { useRemoteNav } from '../composables/useRemoteNav'
 
 // 读档时交回父组件应用到引擎的载荷:带 bytes 表示需先载入对应游戏,
 // 不带 bytes 表示当前已是该游戏、直接套用状态即可。
@@ -38,6 +40,18 @@ const progress = ref<DownloadProgress | null>(null)
 // inline 改名编辑态。
 const editingKey = ref<string | null>(null)
 const editingText = ref('')
+
+// Android TV 遥控器:面板内焦点导航(搜索框/筛选/卡片读档·删除·重命名按钮/关闭)。
+const panelRef = ref<HTMLElement | null>(null)
+useRemoteNav({
+  container: panelRef,
+  active: computed(() => isTv && open.value),
+  onBack: () => {
+    if (busyKey.value === null) open.value = false
+  },
+  autoFocus: true,
+  priority: 10,
+})
 
 watch(
   open,
@@ -189,7 +203,7 @@ function formatError(err: unknown): string {
 
 <template>
   <div v-if="open" class="store-backdrop" @click.self="busyKey === null && (open = false)">
-    <section class="store-panel" role="dialog" aria-modal="true" aria-labelledby="save-panel-title">
+    <section ref="panelRef" class="store-panel" role="dialog" aria-modal="true" aria-labelledby="save-panel-title">
       <header class="store-header">
         <div>
           <h2 id="save-panel-title">存档列表</h2>

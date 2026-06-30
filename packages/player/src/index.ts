@@ -4,6 +4,12 @@ export { default as RomStorePanel } from './components/RomStorePanel.vue'
 export { default as SaveStatePanel } from './components/SaveStatePanel.vue'
 export { default as ShortcutsPanel } from './components/ShortcutsPanel.vue'
 export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
+export { isAndroid, isTv } from './emulator/platform'
+export {
+  useRemoteNav,
+  type RemoteNavApi,
+  type RemoteNavOptions,
+} from './composables/useRemoteNav'
 export { Button, NesRunner, SCREEN, type SaveState } from './emulator/runner'
 export {
   createSaveState,
