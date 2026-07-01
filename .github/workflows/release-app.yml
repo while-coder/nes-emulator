@@ -75,7 +75,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            VERSION="$(node -p "require('./packages/app/package.json').version")"
+            VERSION="$(node -p "require('./package.json').version")"
           fi
           {
             echo "body<<RELEASE_NOTES_EOF"
@@ -168,7 +168,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            VERSION="$(node -p "require('./packages/app/package.json').version")"
+            VERSION="$(node -p "require('./package.json').version")"
           fi
           mkdir -p artifacts
           cp packages/app/src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk \
@@ -243,7 +243,7 @@ jobs:
           if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
-            VERSION="$(node -p "require('./packages/app/package.json').version")"
+            VERSION="$(node -p "require('./package.json').version")"
           fi
           mkdir -p artifacts
 
