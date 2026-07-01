@@ -270,10 +270,21 @@ export function resetKeymap(): void {
   settings.gamepadProfiles = {}
 }
 
-/** 取某型号手柄的有效映射:已建档则返回档案,否则回退标准布局(不写入)。 */
+/**
+ * 取某型号手柄的有效映射:以标准布局为底,再叠加该型号已建档的绑定。
+ * 关键:档案中缺失或为空('')的键回退到标准布局,避免旧档案漏录某键(如 select/start)
+ * 导致该键永久失灵 —— 历史上按标准布局录制的档案常漏掉 b8/b9。
+ */
 export function padmapFor(gamepadId: string | undefined): Padmap {
-  if (gamepadId && settings.gamepadProfiles[gamepadId]) return settings.gamepadProfiles[gamepadId]
-  return defaultPadmap()
+  const base = defaultPadmap()
+  const profile = gamepadId ? settings.gamepadProfiles[gamepadId] : undefined
+  if (!profile) return base
+  const merged = { ...base }
+  for (const key of Object.keys(profile)) {
+    const sig = profile[Number(key)]
+    if (sig) merged[Number(key)] = sig // 仅用档案里非空的绑定覆盖默认
+  }
+  return merged
 }
 
 /** 确保某型号手柄已有档案(以标准布局为初值),返回该档案;用于设置界面写入前。 */
