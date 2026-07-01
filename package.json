@@ -12,6 +12,7 @@
     "android:init": "pnpm --filter @nes-emulator/app run android:init",
     "android:dev": "pnpm --filter @nes-emulator/app run android:dev",
     "android:build": "pnpm --filter @nes-emulator/app run android:build",
+    "android:build:box": "pnpm --filter @nes-emulator/app run android:build:box",
     "ios:dev": "pnpm --filter @nes-emulator/app run ios:dev",
     "ios:build": "pnpm --filter @nes-emulator/app run ios:build",
     "release": "node scripts/release.cjs"

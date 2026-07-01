@@ -40,7 +40,4 @@ export default defineConfig({
       target: 'chrome74',
     },
   },
-  build: {
-    target: 'chrome74',
-  },
 })

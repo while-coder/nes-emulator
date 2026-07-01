@@ -12,6 +12,7 @@
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
+    "android:build:box": "tauri android build --debug --apk --target armv7",
     "ios:dev": "tauri ios dev",
     "ios:build": "tauri ios build"
   },
