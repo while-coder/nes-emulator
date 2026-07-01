@@ -41,9 +41,15 @@ importers:
       '@tauri-apps/cli':
         specifier: ^2.11.3
         version: 2.11.4
+      '@vitejs/plugin-legacy':
+        specifier: ^6.1.1
+        version: 6.1.1(terser@5.48.0)(vite@6.4.3(terser@5.48.0))
       '@vitejs/plugin-vue':
         specifier: 'catalog:'
         version: 5.2.4(vite@6.4.3(terser@5.48.0))(vue@3.5.39(typescript@5.9.3))
+      terser:
+        specifier: ^5.48.0
+        version: 5.48.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -1058,6 +1064,13 @@ packages:
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
 
+  '@vitejs/plugin-legacy@6.1.1':
+    resolution: {integrity: sha512-BvusL+mYZ0q5qS5Rq3D70QxZBmhyiHRaXLtYJHH5AEsAmdSqJR4xe5KwMi1H3w8/9lVJwhkLYqFQ9vmWYWy6kA==}
+    engines: {node: ^18.0.0 || ^20.0.0 || >=22.0.0}
+    peerDependencies:
+      terser: ^5.16.0
+      vite: ^6.0.0
+
   '@vitejs/plugin-vue@5.2.4':
     resolution: {integrity: sha512-7Yx/SXSOcQq5HiiV3orevHUFn+pmMB4cgbEkDYgnkUWb0WfeQ/wa2yFv6D5ICiCQOVpjA7vYDXrC7AGO8yjDHA==}
     engines: {node: ^18.0.0 || >=20.0.0}
@@ -1182,6 +1195,13 @@ packages:
     resolution: {integrity: sha512-7oFy703dxfY3/NLxC1fh2SUCQ0H9rmAY+5EpDVfXjUTTs+HEwR2nYaqLv+GWcTsumwxPfiz6CzCNkwXwBUwqCA==}
     engines: {node: 18 || 20 || >=22}
 
+  browserslist-to-esbuild@2.1.1:
+    resolution: {integrity: sha512-KN+mty6C3e9AN8Z5dI1xeN15ExcRNeISoC3g7V0Kax/MMF9MSoYA2G7lkTTcVUFntiEjkpI0HNgqJC1NjdyNUw==}
+    engines: {node: '>=18'}
+    hasBin: true
+    peerDependencies:
+      browserslist: '*'
+
   browserslist@4.28.4:
     resolution: {integrity: sha512-MTc8i/x9jBQd1iMw2CFGS+rwMa07eYjLR0CCTLDACl9xhxy+nIs3KeML/biicXtk9JrZ6dnnTatmc7ErPXIxqw==}
     engines: {node: ^6 || ^7 || ^8 || ^9 || ^10 || ^11 || ^12 || >=13.7}
@@ -1217,6 +1237,9 @@ packages:
 
   core-js-compat@3.49.0:
     resolution: {integrity: sha512-VQXt1jr9cBz03b331DFDCCP90b3fanciLkgiOoy8SBHy06gNf+vQ1A3WFLqG7I8TipYIKeYK9wxd0tUrvHcOZA==}
+
+  core-js@3.49.0:
+    resolution: {integrity: sha512-es1U2+YTtzpwkxVLwAFdSpaIMyQaq0PBgm3YD1W3Qpsn1NAmO3KSgZfu+oGSWVu6NvLHoHCV/aYcsE5wiB7ALg==}
 
   cross-spawn@7.0.6:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
@@ -1623,6 +1646,10 @@ packages:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
     engines: {node: '>= 0.4'}
 
+  meow@13.2.0:
+    resolution: {integrity: sha512-pxQJQzB6djGPXh08dacEloMFopsOqGVRKFPYvPOt9XDZ1HasbgDZA74CJGreSU4G3Ak7EFJGoiH2auq+yXISgA==}
+    engines: {node: '>=18'}
+
   minimatch@10.2.5:
     resolution: {integrity: sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==}
     engines: {node: 18 || 20 || >=22}
@@ -1724,6 +1751,9 @@ packages:
 
   regenerate@1.4.2:
     resolution: {integrity: sha512-zrceR/XhGYU/d/opr2EKO7aRHUeiBI8qjtfHqADTwZd6Szfy16la6kqD0MIUs5z5hx6AaKa+PixpPrR289+I0A==}
+
+  regenerator-runtime@0.14.1:
+    resolution: {integrity: sha512-dYnhHh0nJoMfnkZs6GmmhFknAGRrLznOu5nc9ML+EJxGvrx6H7teuevqVqCuPcPK//3eDrrjQhehXVx9cnkGdw==}
 
   regexp.prototype.flags@1.5.4:
     resolution: {integrity: sha512-dYqgNSZbDwkaJ2ceRd9ojCGjBq+mOm9LmtXnAnEGyHhN/5R7iDW2TRw3h+o/jCFxus3P2LfWIIiwowAjANm7IA==}
@@ -1865,6 +1895,9 @@ packages:
   supports-preserve-symlinks-flag@1.0.0:
     resolution: {integrity: sha512-ot0WnXS9fgdkgIcePe6RHNk1WA8+muPa6cSjeR3V8K27q9BB1rTE3R1p7Hv0z1ZyAc8s6Vvv8DIyWf681MAt0w==}
     engines: {node: '>= 0.4'}
+
+  systemjs@6.15.1:
+    resolution: {integrity: sha512-Nk8c4lXvMB98MtbmjX7JwJRgJOL8fluecYCfCeYBznwmpOs8Bf15hLM6z4z71EDAhQVrQrI+wt1aLWSXZq+hXA==}
 
   temp-dir@2.0.0:
     resolution: {integrity: sha512-aoBAniQmmwtcKp/7BzsH8Cxzv8OL736p7v1ihGb5e9DJ9kTwGWHrQrVB5+lfVDzfGrdRzXch+ig7LHaY1JTOrg==}
@@ -3056,6 +3089,21 @@ snapshots:
 
   '@types/trusted-types@2.0.7': {}
 
+  '@vitejs/plugin-legacy@6.1.1(terser@5.48.0)(vite@6.4.3(terser@5.48.0))':
+    dependencies:
+      '@babel/core': 7.29.7
+      '@babel/preset-env': 7.29.7(@babel/core@7.29.7)
+      browserslist: 4.28.4
+      browserslist-to-esbuild: 2.1.1(browserslist@4.28.4)
+      core-js: 3.49.0
+      magic-string: 0.30.21
+      regenerator-runtime: 0.14.1
+      systemjs: 6.15.1
+      terser: 5.48.0
+      vite: 6.4.3(terser@5.48.0)
+    transitivePeerDependencies:
+      - supports-color
+
   '@vitejs/plugin-vue@5.2.4(vite@6.4.3(terser@5.48.0))(vue@3.5.39(typescript@5.9.3))':
     dependencies:
       vite: 6.4.3(terser@5.48.0)
@@ -3219,6 +3267,11 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
+  browserslist-to-esbuild@2.1.1(browserslist@4.28.4):
+    dependencies:
+      browserslist: 4.28.4
+      meow: 13.2.0
+
   browserslist@4.28.4:
     dependencies:
       baseline-browser-mapping: 2.10.40
@@ -3257,6 +3310,8 @@ snapshots:
   core-js-compat@3.49.0:
     dependencies:
       browserslist: 4.28.4
+
+  core-js@3.49.0: {}
 
   cross-spawn@7.0.6:
     dependencies:
@@ -3734,6 +3789,8 @@ snapshots:
 
   math-intrinsics@1.1.0: {}
 
+  meow@13.2.0: {}
+
   minimatch@10.2.5:
     dependencies:
       brace-expansion: 5.0.7
@@ -3822,6 +3879,8 @@ snapshots:
       regenerate: 1.4.2
 
   regenerate@1.4.2: {}
+
+  regenerator-runtime@0.14.1: {}
 
   regexp.prototype.flags@1.5.4:
     dependencies:
@@ -4037,6 +4096,8 @@ snapshots:
   strip-comments@2.0.1: {}
 
   supports-preserve-symlinks-flag@1.0.0: {}
+
+  systemjs@6.15.1: {}
 
   temp-dir@2.0.0: {}
 
