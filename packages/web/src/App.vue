@@ -178,6 +178,15 @@ function onSystemAction(action: string) {
   >
     <!-- 触屏顶部热区:工具栏隐藏时点此唤出(桌面用鼠标 hover) -->
     <div v-if="isPlaying" class="toolbar-hotzone" @click="toggleToolbar" />
+    <!-- 顶部唤出手柄:游戏时工具栏自动隐藏,点此(或桌面把鼠标移到顶部)滑出菜单栏。 -->
+    <button
+      v-if="isPlaying && !toolbarVisible"
+      class="toolbar-handle"
+      title="显示菜单栏"
+      @click="toggleToolbar"
+    >
+      ☰
+    </button>
     <header
       ref="toolbarRef"
       class="toolbar"
@@ -349,6 +358,23 @@ textarea,
   right: 0;
   height: 52px;
   z-index: 400;
+}
+/* 顶部唤出手柄:游戏时工具栏隐藏才出现,点击滑出菜单栏(所有平台可见,便于发现)。 */
+.toolbar-handle {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 450;
+  border: none;
+  padding: 3px 22px 6px;
+  font-size: 15px;
+  line-height: 1.3;
+  color: #ddd;
+  background: rgba(37, 37, 37, 0.88);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  cursor: pointer;
 }
 .title {
   font-size: 16px;
