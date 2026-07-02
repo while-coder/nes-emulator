@@ -259,6 +259,16 @@ function onKeyDown(e: KeyboardEvent): void {
   const typing = isTextEntry(active)
   const multilineTyping = isMultilineTextEntry(active)
 
+  // OK/确定键:各家 TV/机顶盒遥控器键值不统一 —— 标准 Enter,部分设备报 'Select'/'Accept',
+  // Android DPAD_CENTER 常为 keyCode 23(WebView 里 e.key 未必是 'Enter')。统一在此识别,
+  // 否则中间确认键按下无反应(能上下左右移焦点却无法"按下"开始游戏)。
+  if (e.key === 'Enter' || e.key === 'Select' || e.key === 'Accept' || e.keyCode === 13 || e.keyCode === 23) {
+    if (typing) return // 文本框内回车交原生(如提交/换行)
+    e.preventDefault()
+    top.ok()
+    return
+  }
+
   switch (e.key) {
     case 'ArrowUp':
       if (multilineTyping) return
@@ -279,11 +289,6 @@ function onKeyDown(e: KeyboardEvent): void {
       if (typing) return
       e.preventDefault()
       top.move('right')
-      return
-    case 'Enter':
-      if (typing) return // 文本框内回车交原生(如提交/换行)
-      e.preventDefault()
-      top.ok()
       return
     case 'Escape':
     case 'Backspace':

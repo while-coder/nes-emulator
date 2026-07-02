@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watchEffect } from 'vue'
 import {
-  PAD_BUTTON_LIST,
-  codeLabel,
   NesScreen,
   RomStorePanel,
   SaveStatePanel,
@@ -14,6 +12,7 @@ import {
   sha256Hex,
   useAutoHideToolbar,
   useFullscreen,
+  useInputMonitor,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
@@ -72,13 +71,8 @@ if (typeof document !== 'undefined') {
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
 const modLabel = isTauri ? 'Ctrl' : 'Shift'
 
-// 按键说明:展示玩家1的键盘映射,跟随设置动态生成,改键后自动同步。
-const keyHint = computed(() => {
-  const keymap = settings.players[0].keymap
-  return PAD_BUTTON_LIST.filter((i) => keymap[i.btn])
-    .map((i) => `${i.label}=${codeLabel(keymap[i.btn])}`)
-    .join(' · ')
-})
+// 调试:当前按下的按键(键盘/手柄/遥控),仅在设置开启时显示于状态栏。
+const { label: inputLabel } = useInputMonitor()
 
 async function openRom() {
   const picked = await pickRomFile()
@@ -256,8 +250,10 @@ function onSystemAction(action: string) {
     </main>
 
     <footer class="footer">
-      <span class="keys">键盘 {{ keyHint }}</span>
       <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
+      <span v-if="settings.misc.showInputDebug" class="input-debug">
+        按键 <b>{{ inputLabel || '—' }}</b>
+      </span>
       <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri 模式' : 'Web 模式' }}</span>
     </footer>
   </div>
@@ -350,10 +346,11 @@ textarea,
 .toolbar.floating.hidden {
   transform: translateY(-100%);
 }
-/* 顶部热区:仅游戏运行时存在,层级低于工具栏,工具栏隐藏后露出以接收触屏唤出点击。 */
+/* 顶部热区:仅游戏运行时存在,层级低于工具栏,工具栏隐藏后露出以接收触屏唤出点击。
+   从安全区下方开始,避开屏幕最顶边缘的系统手势区(下拉通知/状态栏),否则点击会被系统拦截。 */
 .toolbar-hotzone {
   position: absolute;
-  top: 0;
+  top: max(0px, env(safe-area-inset-top));
   left: 0;
   right: 0;
   height: 52px;
@@ -362,17 +359,21 @@ textarea,
 /* 顶部唤出手柄:游戏时工具栏隐藏才出现,点击滑出菜单栏(所有平台可见,便于发现)。 */
 .toolbar-handle {
   position: absolute;
-  top: max(0px, env(safe-area-inset-top)); /* 避开 iOS 状态栏 / 刘海,避免被遮住 */
+  /* 在安全区基础上再下移,离开屏幕最顶边缘:移动浏览器顶边是系统手势区,
+     贴边会导致点击命中下拉状态栏而非按钮(表现为「点了没反应还拉出系统栏」)。 */
+  top: calc(max(0px, env(safe-area-inset-top)) + 10px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 550; /* 高于悬浮工具栏(500),任何层都盖不住 */
-  padding: 4px 26px 7px;
+  touch-action: manipulation; /* 消除双击缩放延迟,点击更跟手 */
+  padding: 6px 26px 8px;
+  border-top-left-radius: 14px;
+  border-top-right-radius: 14px;
   font-size: 17px;
   line-height: 1.2;
   color: #fff;
   background: rgba(0, 0, 0, 0.62);
   border: 1px solid rgba(255, 255, 255, 0.16);
-  border-top: none;
   border-bottom-left-radius: 14px;
   border-bottom-right-radius: 14px;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
@@ -450,12 +451,18 @@ textarea,
   color: #aaa;
   font-size: 12px;
 }
-.footer .keys {
-  letter-spacing: 0.2px;
-}
 .footer .meta {
   color: #666;
   margin-left: auto;
+}
+/* 调试:当前按下的按键 */
+.footer .input-debug {
+  color: #888;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+}
+.footer .input-debug b {
+  color: #6ab0ff;
+  font-weight: 600;
 }
 .link-btn {
   border: none;

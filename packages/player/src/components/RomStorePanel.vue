@@ -631,22 +631,23 @@ function formatError(err: unknown): string {
   min-height: 0;
   overflow: auto;
   padding: 12px 18px 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 10px;
+  align-content: start;
 }
 .game-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   padding: 12px;
   border: 1px solid #333942;
   border-radius: 8px;
   background: #252a31;
 }
-.game-card + .game-card {
-  margin-top: 8px;
-}
 .game-main {
   min-width: 0;
+  flex: 1;
 }
 .game-title-row {
   display: flex;
@@ -731,6 +732,7 @@ function formatError(err: unknown): string {
   cursor: default;
 }
 .empty {
+  grid-column: 1 / -1;
   margin: 40px 0;
   color: #9da5b3;
   text-align: center;
@@ -791,7 +793,7 @@ function formatError(err: unknown): string {
   .error {
     text-align: left;
   }
-  .game-card {
+  .game-list {
     grid-template-columns: 1fr;
   }
   .game-actions {
@@ -854,14 +856,14 @@ function formatError(err: unknown): string {
   }
   .game-list {
     padding: 6px 12px 8px;
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
   .game-card {
-    grid-template-columns: minmax(0, 1fr) auto;
+    flex-direction: row;
+    align-items: center;
     padding: 6px 8px;
     gap: 8px;
-  }
-  .game-card + .game-card {
-    margin-top: 6px;
   }
   .game-title-row h3 {
     font-size: 13px;

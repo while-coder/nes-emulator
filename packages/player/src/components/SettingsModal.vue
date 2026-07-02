@@ -347,6 +347,10 @@ onBeforeUnmount(() => {
               <option v-for="h in TURBO_HZ_OPTIONS" :key="h" :value="h">{{ h }} 次/秒</option>
             </select>
           </label>
+          <label class="row">
+            <span>显示按下的按键<br /><small class="hint-text">调试用,状态栏实时显示键盘/手柄/遥控按键</small></span>
+            <input v-model="settings.misc.showInputDebug" type="checkbox" />
+          </label>
           <button class="reset" @click="resetSettings">恢复全部默认设置</button>
         </div>
       </section>
@@ -453,6 +457,10 @@ onBeforeUnmount(() => {
   margin: 0 0 12px;
   color: #888;
   font-size: 12px;
+}
+.hint-text {
+  color: #888;
+  font-size: 11px;
 }
 .row {
   display: flex;

@@ -2,8 +2,6 @@
 import { computed, onBeforeUnmount, onMounted, ref, watchEffect } from 'vue'
 import { exit } from '@tauri-apps/plugin-process'
 import {
-  PAD_BUTTON_LIST,
-  codeLabel,
   NesScreen,
   RomStorePanel,
   SaveStatePanel,
@@ -17,6 +15,7 @@ import {
   isTv,
   useAutoHideToolbar,
   useFullscreen,
+  useInputMonitor,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
@@ -81,13 +80,8 @@ if (typeof document !== 'undefined') {
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
 const modLabel = isTauri ? 'Ctrl' : 'Shift'
 
-// 按键说明:展示玩家1的键盘映射,改键后自动同步。
-const keyHint = computed(() => {
-  const keymap = settings.players[0].keymap
-  return PAD_BUTTON_LIST.filter((i) => keymap[i.btn])
-    .map((i) => `${i.label}=${codeLabel(keymap[i.btn])}`)
-    .join(' · ')
-})
+// 调试:当前按下的按键(键盘/手柄/遥控),仅在设置开启时显示于状态栏。
+const { label: inputLabel } = useInputMonitor()
 
 async function openRom() {
   const picked = await pickRomFile()
@@ -340,9 +334,11 @@ onBeforeUnmount(() => {
     </Transition>
 
     <footer class="footer">
-      <span class="keys">键盘 {{ keyHint }}</span>
       <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
       <span v-if="navEnabled && !hasGamepad" class="tv-tip">游戏操作需连接手柄;遥控器用于菜单导航,返回键退出</span>
+      <span v-if="settings.misc.showInputDebug" class="input-debug">
+        按键 <b>{{ inputLabel || '—' }}</b>
+      </span>
       <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri App' : '浏览器预览' }}</span>
     </footer>
   </div>
@@ -536,12 +532,18 @@ textarea,
   color: #aaa;
   font-size: 12px;
 }
-.footer .keys {
-  letter-spacing: 0.2px;
-}
 .footer .meta {
   color: #777;
   margin-left: auto;
+}
+/* 调试:当前按下的按键 */
+.footer .input-debug {
+  color: #888;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+}
+.footer .input-debug b {
+  color: #6ab0ff;
+  font-weight: 600;
 }
 .footer .tv-tip {
   color: #6ab0ff;

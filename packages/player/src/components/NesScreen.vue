@@ -13,6 +13,7 @@ import {
   buildCodeToButton,
   buildPadToButton,
   ensurePadProfile,
+  GAMEPAD_AXIS_THRESHOLD,
   isPadSignalActive,
   isTurbo,
   listGamepads,
@@ -371,6 +372,14 @@ function pollGamepads() {
       for (const sig in map) {
         if (isPadSignalActive(pad, sig)) now.add(map[sig])
       }
+      // 左摇杆(axes[0]=X,axes[1]=Y)始终兼作方向键,与十字键并存:
+      // NES 方向映射默认只绑 D-pad,这里叠加摇杆,让摇杆/十字键都能操作方向。
+      const ax = pad.axes[0] ?? 0
+      const ay = pad.axes[1] ?? 0
+      if (ax < -GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Left)
+      else if (ax > GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Right)
+      if (ay < -GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Up)
+      else if (ay > GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Down)
     }
     const prev = padActive[pi] ?? new Set<number>()
     now.forEach((pb) => {

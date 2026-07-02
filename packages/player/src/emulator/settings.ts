@@ -75,6 +75,8 @@ export interface Settings {
     speed: number
     /** 连发频率(次/秒)。 */
     turboHz: number
+    /** 调试:在状态栏实时显示当前按下的按键(键盘/手柄/遥控)。 */
+    showInputDebug: boolean
   }
 }
 
@@ -200,6 +202,7 @@ function defaultSettings(): Settings {
       touchPad: 'auto',
       speed: 1,
       turboHz: 16,
+      showInputDebug: false,
     },
   }
 }
