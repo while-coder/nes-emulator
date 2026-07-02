@@ -18,6 +18,7 @@ import {
   type TouchPadMode,
 } from '../emulator/settings'
 import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
+import RemoteSelect from './RemoteSelect.vue'
 
 const open = defineModel<boolean>('open', { default: false })
 
@@ -47,6 +48,14 @@ function gamepadName(g: { index: number; id: string }): string {
   const name = g.id.length > 28 ? `${g.id.slice(0, 28)}…` : g.id
   return `#${g.index} ${name}`
 }
+
+// RemoteSelect 需要 {value, label} 形式的选项。
+const gamepadOptions = computed(() => [
+  { value: null as number | null, label: '未绑定(仅键盘)' },
+  ...gamepads.value.map((g) => ({ value: g.index as number | null, label: gamepadName(g) })),
+])
+const speedOptions = SPEED_OPTIONS.map((s) => ({ value: s, label: `${s}×` }))
+const turboOptions = TURBO_HZ_OPTIONS.map((h) => ({ value: h, label: `${h} 次/秒` }))
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'keys', label: '按键' },
@@ -251,12 +260,7 @@ onBeforeUnmount(() => {
           <!-- 手柄分配:玩家选择使用哪个实体手柄;手柄映射按型号共享 -->
           <label class="pad-assign">
             <span>使用手柄</span>
-            <select v-model="currentPlayer.gamepadIndex">
-              <option :value="null">未绑定(仅键盘)</option>
-              <option v-for="g in gamepads" :key="g.index" :value="g.index">
-                {{ gamepadName(g) }}
-              </option>
-            </select>
+            <RemoteSelect v-model="currentPlayer.gamepadIndex" :options="gamepadOptions" />
           </label>
 
           <p class="tip">
@@ -301,9 +305,7 @@ onBeforeUnmount(() => {
           </label>
           <label class="row">
             <span>宽高比</span>
-            <select v-model="settings.display.aspect">
-              <option v-for="a in ASPECTS" :key="a.value" :value="a.value">{{ a.label }}</option>
-            </select>
+            <RemoteSelect v-model="settings.display.aspect" :options="ASPECTS" />
           </label>
           <label class="row">
             <span>整数倍缩放</span>
@@ -331,21 +333,15 @@ onBeforeUnmount(() => {
         <div v-else class="form">
           <label class="row">
             <span>触屏手柄</span>
-            <select v-model="settings.misc.touchPad">
-              <option v-for="m in TOUCH_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
-            </select>
+            <RemoteSelect v-model="settings.misc.touchPad" :options="TOUCH_MODES" />
           </label>
           <label class="row">
             <span>运行速度</span>
-            <select v-model.number="settings.misc.speed">
-              <option v-for="s in SPEED_OPTIONS" :key="s" :value="s">{{ s }}×</option>
-            </select>
+            <RemoteSelect v-model="settings.misc.speed" :options="speedOptions" />
           </label>
           <label class="row">
             <span>连发频率</span>
-            <select v-model.number="settings.misc.turboHz">
-              <option v-for="h in TURBO_HZ_OPTIONS" :key="h" :value="h">{{ h }} 次/秒</option>
-            </select>
+            <RemoteSelect v-model="settings.misc.turboHz" :options="turboOptions" />
           </label>
           <label class="row">
             <span>显示按下的按键<br /><small class="hint-text">调试用,状态栏实时显示键盘/手柄/遥控按键</small></span>
@@ -449,7 +445,8 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 8px 0;
 }
-.pad-assign select {
+.pad-assign select,
+.pad-assign .remote-select {
   min-width: 200px;
   max-width: 240px;
 }
@@ -500,6 +497,7 @@ onBeforeUnmount(() => {
   color: #ffb3aa;
 }
 .row select,
+.row .remote-select,
 .row input[type='range'] {
   min-width: 160px;
 }

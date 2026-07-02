@@ -49,7 +49,21 @@ export async function loadRomCatalog(url = DEFAULT_CATALOG_URL): Promise<RomCata
       throw new Error('ROM 目录缺少必要字段')
     }
   }
+  // 远程目录可能存在 sha256 相同的重复条目(同一 ROM 内容多次收录)。
+  // sha256 同时是 romKey / 缓存键,重复会导致 v-for key 冲突且无法区分,
+  // 故按 sha256 去重,保留首次出现的条目。
+  catalog.games = dedupeBySha256(catalog.games)
   return catalog
+}
+
+function dedupeBySha256(games: RomEntry[]): RomEntry[] {
+  const seen = new Set<string>()
+  return games.filter((game) => {
+    const key = game.sha256!
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 export function listGenres(games: RomEntry[]): string[] {

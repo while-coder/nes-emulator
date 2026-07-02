@@ -156,17 +156,7 @@ function adjustControl(el: HTMLElement, dir: 'left' | 'right'): boolean {
     }
     return true
   }
-  if (el instanceof HTMLSelectElement) {
-    const n = el.options.length
-    if (n > 0) {
-      const next = Math.min(n - 1, Math.max(0, el.selectedIndex + delta))
-      if (next !== el.selectedIndex) {
-        el.selectedIndex = next
-        el.dispatchEvent(new Event('change', { bubbles: true }))
-      }
-    }
-    return true
-  }
+  // 下拉框不再用左右键调值:改由 RemoteSelect(确定弹出 → 上下选 → 确定切换)承载。
   return false
 }
 
@@ -328,7 +318,7 @@ export function useRemoteNav(opts: RemoteNavOptions): RemoteNavApi {
     const container = opts.container.value
     if (!container) return
     const active = document.activeElement
-    // 焦点在 select/range 上时,左右键交给控件调值。
+    // 焦点在 range 滑块上时,左右键交给控件调值。
     if ((dir === 'left' || dir === 'right') && active instanceof HTMLElement) {
       if (container.contains(active) && adjustControl(active, dir)) return
     }

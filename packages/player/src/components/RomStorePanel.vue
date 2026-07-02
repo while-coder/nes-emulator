@@ -19,6 +19,7 @@ import {
   type CachedRom,
 } from '../store/romLibrary'
 import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
+import RemoteSelect from './RemoteSelect.vue'
 
 type StoreTab = 'downloaded' | 'online'
 
@@ -82,6 +83,10 @@ function sortList<T>(
 
 const cachedKeys = computed(() => new Set(cachedRoms.value.map((rom) => rom.key)))
 const genres = computed(() => listGenres(catalog.value.games))
+const genreOptions = computed(() => [
+  { value: '', label: '全部类型' },
+  ...genres.value.map((item) => ({ value: item, label: item })),
+])
 const matchedGames = computed(() =>
   searchRoms(catalog.value.games, query.value, genre.value, false, cachedKeys.value),
 )
@@ -399,15 +404,8 @@ function formatError(err: unknown): string {
 
       <div class="store-tools">
         <input v-model="query" class="search" type="search" placeholder="搜索游戏、厂商、标签" />
-        <select v-model="genre" class="select">
-          <option value="">全部类型</option>
-          <option v-for="item in genres" :key="item" :value="item">{{ item }}</option>
-        </select>
-        <select v-model="sort" class="select">
-          <option v-for="item in SORT_OPTIONS" :key="item.value" :value="item.value">
-            {{ item.label }}
-          </option>
-        </select>
+        <RemoteSelect v-model="genre" class="select" :options="genreOptions" />
+        <RemoteSelect v-model="sort" class="select" :options="SORT_OPTIONS" />
       </div>
 
       <div class="store-summary">
