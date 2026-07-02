@@ -12,7 +12,6 @@
     "android:init": "tauri android init",
     "android:dev": "tauri android dev",
     "android:build": "tauri android build",
-    "android:build:box": "tauri android build --debug --apk --target armv7",
     "ios:dev": "tauri ios dev",
     "ios:build": "tauri ios build"
   },
@@ -23,9 +22,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.11.3",
-    "@vitejs/plugin-legacy": "^6.1.1",
     "@vitejs/plugin-vue": "catalog:",
-    "terser": "^5.48.0",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vue-tsc": "catalog:"
