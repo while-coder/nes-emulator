@@ -12,12 +12,17 @@ import {
   navEnabled,
   settings,
   sha256Hex,
+  useAutoHideToolbar,
+  useFullscreen,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
 import { isTauri, pickRomFile, storage } from './emulator/platform'
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)
+// 全屏目标为整个应用根容器:工具栏+画面+footer 一起铺满,任何状态下都可操作、可退出。
+const appRef = ref<HTMLElement | null>(null)
+const { isFullscreen, usePseudo, toggle: toggleFullscreen } = useFullscreen(appRef)
 // 启动时不恢复上次 ROM 名:仅有名字而引擎未载入会让按钮误显示为可用,故初始为未载入。
 const romName = ref<string | null>(null)
 // 当前卡带的稳定标识(sha256),把存档绑定到对应游戏;读档时据此找回 ROM。
@@ -47,6 +52,14 @@ useRemoteNav({
   autoFocus: true,
   priority: 0,
 })
+
+// 游戏运行(已载入且未暂停)时自动隐藏顶部工具栏,鼠标移到顶部/触屏点顶部唤出。
+const isPlaying = computed(() => !!romName.value && !paused.value)
+const {
+  visible: toolbarVisible,
+  handlePointerMove: onToolbarPointerMove,
+  toggle: toggleToolbar,
+} = useAutoHideToolbar(isPlaying)
 
 // 焦点环作用到全局,保证 Teleport 到 body 的下拉菜单也能显示遥控焦点。
 if (typeof document !== 'undefined') {
@@ -133,10 +146,6 @@ function stopRom() {
   paused.value = false
 }
 
-function toggleFullscreen() {
-  screen.value?.toggleFullscreen()
-}
-
 function toggleAudio() {
   audioOn.value = !audioOn.value
   screen.value?.setAudioEnabled(audioOn.value)
@@ -150,13 +159,30 @@ function onSystemAction(action: string) {
     storeOpen.value = true
   } else if (action === 'open-saves') {
     savesOpen.value = true
+  } else if (action === 'toggle-fullscreen') {
+    void toggleFullscreen()
   }
 }
 </script>
 
 <template>
-  <div class="app" :class="{ 'tv-nav': navEnabled }">
-    <header ref="toolbarRef" class="toolbar">
+  <div
+    ref="appRef"
+    class="app"
+    :class="{
+      'tv-nav': navEnabled,
+      'is-fullscreen': isFullscreen,
+      'is-pseudo-fullscreen': isFullscreen && usePseudo,
+    }"
+    @mousemove="onToolbarPointerMove"
+  >
+    <!-- 触屏顶部热区:工具栏隐藏时点此唤出(桌面用鼠标 hover) -->
+    <div v-if="isPlaying" class="toolbar-hotzone" @click="toggleToolbar" />
+    <header
+      ref="toolbarRef"
+      class="toolbar"
+      :class="{ floating: isPlaying, hidden: isPlaying && !toolbarVisible }"
+    >
       <h1 class="title">NES 模拟器</h1>
       <div class="spacer" />
       <button class="btn" :disabled="loading" @click="openRom">
@@ -187,7 +213,13 @@ function onSystemAction(action: string) {
       </button>
       <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
       <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
-      <button class="btn icon" @click="toggleFullscreen" :title="`全屏 (${modLabel}+F)`">⛶</button>
+      <button
+        class="btn icon"
+        @click="toggleFullscreen"
+        :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
+      >
+        {{ isFullscreen ? '⛗' : '⛶' }}
+      </button>
       <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
         {{ audioOn ? '🔊' : '🔇' }}
       </button>
@@ -274,6 +306,18 @@ textarea,
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative; /* 悬浮工具栏 / 顶部热区的定位上下文 */
+}
+/* 伪全屏(iOS Safari 等无原生 Fullscreen API 时):固定铺满视口。
+   原生全屏由浏览器负责铺满,只需处理伪全屏这一路。body 已 overflow:hidden。 */
+.app.is-pseudo-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+}
+/* 全屏时画面盒子去圆角,更贴边(原生:app 命中 :fullscreen,伪全屏命中 class,统一走 is-fullscreen)。 */
+.app.is-fullscreen :deep(.frame) {
+  border-radius: 0;
 }
 .toolbar {
   display: flex;
@@ -283,6 +327,28 @@ textarea,
   background: #252525;
   border-bottom: 1px solid #333;
   overflow-x: auto;
+}
+/* 游戏运行时工具栏脱离文档流、悬浮于画面之上,可上下滑动显隐(画面因此占满高度)。 */
+.toolbar.floating {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 500;
+  background: rgba(37, 37, 37, 0.94);
+  transition: transform 0.25s ease;
+}
+.toolbar.floating.hidden {
+  transform: translateY(-100%);
+}
+/* 顶部热区:仅游戏运行时存在,层级低于工具栏,工具栏隐藏后露出以接收触屏唤出点击。 */
+.toolbar-hotzone {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 52px;
+  z-index: 400;
 }
 .title {
   font-size: 16px;

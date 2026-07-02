@@ -189,7 +189,7 @@ function onKeyDown(e: KeyboardEvent) {
         return
       case 'KeyF':
         e.preventDefault()
-        if (!e.repeat) toggleFullscreen()
+        if (!e.repeat) emit('systemAction', 'toggle-fullscreen')
         return
     }
   }
@@ -485,19 +485,8 @@ watch(
   () => applyDisplaySize(),
 )
 
-// 全屏:Android Chrome 工作良好;iOS PWA(standalone)的 Fullscreen API 不一定可用,
-// 这种情况下 PWA 本身已无浏览器 UI,失败时静默忽略即可,避免抛未处理异常。
-async function toggleFullscreen() {
-  try {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen()
-    } else {
-      await wrapRef.value?.requestFullscreen()
-    }
-  } catch (err) {
-    console.warn('[NES] 全屏切换不可用', err)
-  }
-}
+// 全屏由 App 层统一管理(见 useFullscreen):对整个应用根容器全屏,
+// 键盘 mod+F 经 systemAction('toggle-fullscreen') 上抛,本组件不再自行控制全屏。
 
 // 屏幕方向:载入 ROM 后尝试锁横屏(NES 横屏游玩体验更好),停止 / 卸载时解锁。
 // 仅在 PWA standalone 或全屏下生效;桌面 / 普通浏览器标签会被拒,静默忽略。
@@ -561,7 +550,6 @@ defineExpose({
   loadRom,
   reset,
   setAudioEnabled,
-  toggleFullscreen,
   pause,
   resume,
   stop,
@@ -647,13 +635,5 @@ defineExpose({
     rgba(0, 0, 0, 0.25) 2px,
     rgba(0, 0, 0, 0.25) 3px
   );
-}
-
-/* 全屏时铺满整个屏幕,画面居中最大化 */
-.screen-wrap:fullscreen {
-  gap: 0;
-}
-.screen-wrap:fullscreen .frame {
-  border-radius: 0;
 }
 </style>
