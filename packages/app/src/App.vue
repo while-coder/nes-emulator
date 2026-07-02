@@ -448,18 +448,20 @@ textarea,
 /* 顶部唤出手柄:游戏时工具栏隐藏才出现,点击滑出菜单栏(所有平台可见,便于发现)。 */
 .toolbar-handle {
   position: absolute;
-  top: 0;
+  top: max(0px, env(safe-area-inset-top)); /* 避开 iOS 状态栏 / 刘海,避免被遮住 */
   left: 50%;
   transform: translateX(-50%);
-  z-index: 450;
-  border: none;
-  padding: 3px 22px 6px;
-  font-size: 15px;
-  line-height: 1.3;
-  color: #ddd;
-  background: rgba(36, 36, 36, 0.88);
-  border-bottom-left-radius: 12px;
-  border-bottom-right-radius: 12px;
+  z-index: 550; /* 高于悬浮工具栏(500),任何层都盖不住 */
+  padding: 4px 26px 7px;
+  font-size: 17px;
+  line-height: 1.2;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.62);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: none;
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
   cursor: pointer;
 }
 .title {
