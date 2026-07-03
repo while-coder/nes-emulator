@@ -116,7 +116,7 @@ async function onLoadSave(payload: {
   if (payload.bytes) {
     await loadRomBytes(payload.name, payload.bytes, payload.romKey)
   }
-  screen.value?.applyState(payload.state)
+  await screen.value?.applyState(payload.state)
 }
 
 function reset() {
@@ -188,11 +188,54 @@ function onSystemAction(action: string) {
     >
       <h1 class="title">NES 模拟器</h1>
       <div class="spacer" />
+      <!-- 主按钮:最高频操作,任何宽度下都直接可见。 -->
       <button class="btn" :disabled="loading" @click="openRom">
         {{ loading ? '载入中…' : '打开 ROM' }}
       </button>
-      <button class="btn" @click="storeOpen = true">ROM 库 <kbd>{{ modLabel }}+G</kbd></button>
-      <ToolbarMenu label="存档">
+      <button
+        class="btn icon"
+        :disabled="!romName"
+        :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
+        @click="togglePause"
+      >
+        {{ paused ? '▶' : '⏸' }}
+      </button>
+      <button
+        class="btn icon"
+        @click="toggleFullscreen"
+        :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
+      >
+        {{ isFullscreen ? '⛗' : '⛶' }}
+      </button>
+      <!-- 次要按钮:桌面平铺展开;触屏/窄屏隐藏,改由下方 ☰ 菜单收纳。 -->
+      <div class="secondary">
+        <button class="btn" @click="storeOpen = true">ROM 库 <kbd>{{ modLabel }}+G</kbd></button>
+        <ToolbarMenu label="存档">
+          <button class="menu-item" :disabled="!romName" @click="saveState">
+            快速存档 <kbd>{{ modLabel }}+S</kbd>
+          </button>
+          <button class="menu-item" :disabled="!romName" @click="loadState">
+            快速读档 <kbd>{{ modLabel }}+L</kbd>
+          </button>
+          <button class="menu-item" :disabled="!romName" @click="newSave">
+            新建存档 <kbd>{{ modLabel }}+N</kbd>
+          </button>
+          <button class="menu-item" @click="savesOpen = true">
+            存档列表 <kbd>{{ modLabel }}+A</kbd>
+          </button>
+        </ToolbarMenu>
+        <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
+        <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
+        <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
+          {{ audioOn ? '🔊' : '🔇' }}
+        </button>
+        <button class="btn icon" title="设置" @click="settingsOpen = true">⚙</button>
+      </div>
+      <!-- ☰ 更多:仅触屏/窄屏出现,把次要操作平铺进下拉,避免竖屏横向滚动。 -->
+      <ToolbarMenu label="☰" class="more-menu">
+        <button class="menu-item" @click="storeOpen = true">
+          ROM 库 <kbd>{{ modLabel }}+G</kbd>
+        </button>
         <button class="menu-item" :disabled="!romName" @click="saveState">
           快速存档 <kbd>{{ modLabel }}+S</kbd>
         </button>
@@ -205,28 +248,13 @@ function onSystemAction(action: string) {
         <button class="menu-item" @click="savesOpen = true">
           存档列表 <kbd>{{ modLabel }}+A</kbd>
         </button>
+        <button class="menu-item" :disabled="!romName" @click="reset">复位</button>
+        <button class="menu-item" :disabled="!romName" @click="stopRom">中止</button>
+        <button class="menu-item" @click="toggleAudio">
+          {{ audioOn ? '音频:开' : '音频:关' }}
+        </button>
+        <button class="menu-item" @click="settingsOpen = true">设置</button>
       </ToolbarMenu>
-      <button
-        class="btn icon"
-        :disabled="!romName"
-        :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
-        @click="togglePause"
-      >
-        {{ paused ? '▶' : '⏸' }}
-      </button>
-      <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
-      <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
-      <button
-        class="btn icon"
-        @click="toggleFullscreen"
-        :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
-      >
-        {{ isFullscreen ? '⛗' : '⛶' }}
-      </button>
-      <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
-        {{ audioOn ? '🔊' : '🔇' }}
-      </button>
-      <button class="btn icon" title="设置" @click="settingsOpen = true">⚙</button>
     </header>
 
     <SettingsModal v-model:open="settingsOpen" />

@@ -68,7 +68,7 @@ async function quickSave() {
     showToast('请先载入游戏')
     return
   }
-  const state = runner.saveState()
+  const state = await runner.saveState()
   if (!state) {
     showToast('存档失败')
     return
@@ -88,7 +88,7 @@ async function quickNewSave() {
     showToast('请先载入游戏')
     return
   }
-  const state = runner.saveState()
+  const state = await runner.saveState()
   if (!state) {
     showToast('存档失败')
     return
@@ -121,7 +121,7 @@ async function quickLoad() {
     showToast('暂无存档')
     return
   }
-  showToast(runner.loadState(record.state) ? '已读档' : '读档失败')
+  showToast((await runner.loadState(record.state)) ? '已读档' : '读档失败')
 }
 
 const NATIVE_W = 256
@@ -546,12 +546,12 @@ function stop() {
 }
 
 // 供存档列表面板使用:抓取当前引擎状态 / 把某条存档状态应用到引擎。
-function captureState() {
-  return runner?.loaded ? (runner.saveState() ?? null) : null
+async function captureState(): Promise<SaveState | null> {
+  return runner?.loaded ? ((await runner.saveState()) ?? null) : null
 }
-function applyState(state: SaveState): boolean {
+async function applyState(state: SaveState): Promise<boolean> {
   if (!runner?.loaded) return false
-  const ok = runner.loadState(state)
+  const ok = await runner.loadState(state)
   showToast(ok ? '已读档' : '读档失败')
   return ok
 }

@@ -6,7 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "jsnes": "2.1.0",
+    "nostalgist": "0.21.1",
     "vue": "catalog:"
   }
 }

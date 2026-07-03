@@ -60,7 +60,7 @@ export async function saveCachedRom(entry: RomEntry, bytes: Uint8Array): Promise
     genre: entry.genre,
     publisher: entry.publisher,
     mapper: entry.mapper,
-    tags: entry.tags,
+    tags: entry.tags ? [...entry.tags] : undefined,
     savedAt: Date.now(),
   }
   await requestToPromise(tx.objectStore(STORE_NAME).put(record))

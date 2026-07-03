@@ -125,7 +125,7 @@ async function onLoadSave(payload: {
   if (payload.bytes) {
     await loadRomBytes(payload.name, payload.bytes, payload.romKey)
   }
-  screen.value?.applyState(payload.state)
+  await screen.value?.applyState(payload.state)
 }
 
 function reset() {

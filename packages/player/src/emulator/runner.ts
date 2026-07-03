@@ -1,24 +1,18 @@
 /**
- * NES 运行器:封装 jsnes 核心的生命周期、帧循环、画面渲染与音频输出。
+ * NES 运行器:封装 Nostalgist.js(libretro/fceumm wasm 核心)的生命周期与输入。
  *
- * 渲染:按真实时间锁定 ~60fps,每帧 nes.frame() 后把 jsnes 的帧缓冲写入 canvas。
- * 音频:jsnes 在执行帧时通过 onAudioSample 推送采样,这里写入环形缓冲,
- * 再由 ScriptProcessorNode 稳定输出到浏览器音频设备。
+ * 与旧的 jsnes 实现不同,渲染、音频、帧循环全部由 Nostalgist/RetroArch 内部接管,
+ * 本类只负责:载入 ROM、把逻辑按钮映射成 RetroArch 输入、存读档、暂停/继续、
+ * 以及速度/音量的(降级)控制。核心文件(fceumm_libretro.js/.wasm)本地打包在
+ * 各宿主的 public/cores/ 下,通过相对路径加载,保证离线(Tauri)与 PWA 可用。
  */
-import './jsnes-mapper90.js'
-import { Controller, NES, type ButtonKey, type ControllerId, type EmulatorData } from 'jsnes'
+import { Nostalgist } from 'nostalgist'
 
-/** 存档快照:jsnes 引擎完整状态的可序列化对象(可直接存入 IndexedDB)。 */
-export type SaveState = EmulatorData
+/** 存档快照:RetroArch 的二进制 savestate(可直接存入 IndexedDB)。 */
+export type SaveState = Uint8Array
 
 const WIDTH = 256
 const HEIGHT = 240
-const PIXELS_LEN = WIDTH * HEIGHT
-const AUDIO_BUFFER_LEN = 4096
-const AUDIO_QUEUE_LEN = 32768
-// NES(NTSC)实际帧率,用于在任意显示器刷新率下锁定运行速度。
-const TARGET_FPS = 60.0988
-const FRAME_MS = 1000 / TARGET_FPS
 
 export enum Button {
   Poweroff = 0,
@@ -43,221 +37,171 @@ export enum Button {
   Joypad2Select = 17,
 }
 
-type ButtonBinding = {
-  controller: ControllerId
-  button: ButtonKey
+type NostalgistInstance = Awaited<ReturnType<typeof Nostalgist.launch>>
+
+/** 逻辑按钮 -> (libretro 按钮名, 玩家号)。libretro 按钮名用 SNES 布局的 a/b。 */
+const NES_BUTTON: Partial<Record<Button, { button: string; player: number }>> = {
+  [Button.Joypad1A]: { button: 'a', player: 1 },
+  [Button.Joypad1B]: { button: 'b', player: 1 },
+  [Button.Joypad1Up]: { button: 'up', player: 1 },
+  [Button.Joypad1Down]: { button: 'down', player: 1 },
+  [Button.Joypad1Left]: { button: 'left', player: 1 },
+  [Button.Joypad1Right]: { button: 'right', player: 1 },
+  [Button.Joypad1Start]: { button: 'start', player: 1 },
+  [Button.Joypad1Select]: { button: 'select', player: 1 },
+  [Button.Joypad2A]: { button: 'a', player: 2 },
+  [Button.Joypad2B]: { button: 'b', player: 2 },
+  [Button.Joypad2Up]: { button: 'up', player: 2 },
+  [Button.Joypad2Down]: { button: 'down', player: 2 },
+  [Button.Joypad2Left]: { button: 'left', player: 2 },
+  [Button.Joypad2Right]: { button: 'right', player: 2 },
+  [Button.Joypad2Start]: { button: 'start', player: 2 },
+  [Button.Joypad2Select]: { button: 'select', player: 2 },
 }
 
-const BUTTON_BINDINGS: Partial<Record<Button, ButtonBinding>> = {
-  [Button.Joypad1A]: { controller: 1, button: Controller.BUTTON_A },
-  [Button.Joypad1B]: { controller: 1, button: Controller.BUTTON_B },
-  [Button.Joypad1Up]: { controller: 1, button: Controller.BUTTON_UP },
-  [Button.Joypad1Down]: { controller: 1, button: Controller.BUTTON_DOWN },
-  [Button.Joypad1Left]: { controller: 1, button: Controller.BUTTON_LEFT },
-  [Button.Joypad1Right]: { controller: 1, button: Controller.BUTTON_RIGHT },
-  [Button.Joypad1Start]: { controller: 1, button: Controller.BUTTON_START },
-  [Button.Joypad1Select]: { controller: 1, button: Controller.BUTTON_SELECT },
-  [Button.Joypad2A]: { controller: 2, button: Controller.BUTTON_A },
-  [Button.Joypad2B]: { controller: 2, button: Controller.BUTTON_B },
-  [Button.Joypad2Up]: { controller: 2, button: Controller.BUTTON_UP },
-  [Button.Joypad2Down]: { controller: 2, button: Controller.BUTTON_DOWN },
-  [Button.Joypad2Left]: { controller: 2, button: Controller.BUTTON_LEFT },
-  [Button.Joypad2Right]: { controller: 2, button: Controller.BUTTON_RIGHT },
-  [Button.Joypad2Start]: { controller: 2, button: Controller.BUTTON_START },
-  [Button.Joypad2Select]: { controller: 2, button: Controller.BUTTON_SELECT },
-}
+// Nostalgist 用「模拟键盘」实现 press/pressUp:pressDown('a', player) 会查
+// input_player{player}_a 绑定的键名并触发对应合成事件。RetroArch 内建默认只覆盖
+// 玩家1,玩家2 必须在此显式配键位,否则 pressDown 对玩家2 无效(getKeyboardCode 返回空)。
+// 这些键名只是 Nostalgist 内部合成事件用的虚拟标识(合成事件不经真实 DOM 派发,
+// 也不受 respondToGlobalEvents 影响),因此只需两玩家之间不冲突、均为合法键名即可,
+// 与用户真实键盘无关(真实输入仍由 NesScreen 的自定义映射经 press/release 进入)。
+const INPUT_CONFIG = {
+  input_player1_up: 'i',
+  input_player1_down: 'k',
+  input_player1_left: 'j',
+  input_player1_right: 'l',
+  input_player1_a: 'x',
+  input_player1_b: 'z',
+  input_player1_start: 'n',
+  input_player1_select: 'm',
+  input_player2_up: 'w',
+  input_player2_down: 's',
+  input_player2_left: 'a',
+  input_player2_right: 'd',
+  input_player2_a: 'q',
+  input_player2_b: 'e',
+  input_player2_start: 't',
+  input_player2_select: 'y',
+} as const
+
+/** 速度状态:RetroArch 只有快进/慢放两个 toggle,任意倍速被降级为这三档。 */
+type SpeedMode = 'normal' | 'ff' | 'slow'
 
 export class NesRunner {
-  private nes: NES | null = null
-  private readonly ctx: CanvasRenderingContext2D
-  private readonly image: ImageData
-  private readonly frame32: Uint32Array
-  private readonly frame8: Uint8ClampedArray
-  private rafId = 0
+  private readonly canvas: HTMLCanvasElement
+  private instance: NostalgistInstance | null = null
   private running = false
 
-  private audioCtx: AudioContext | null = null
-  private scriptNode: ScriptProcessorNode | null = null
-  private gainNode: GainNode | null = null
-  private readonly audioLeft = new Float32Array(AUDIO_QUEUE_LEN)
-  private readonly audioRight = new Float32Array(AUDIO_QUEUE_LEN)
-  private audioRead = 0
-  private audioWrite = 0
-  private audioQueued = 0
-  private audioEnabled = true
   private volume = 1
+  private audioEnabled = true
   private speed = 1
-  /** 待执行帧数累加器:按真实时间与目标帧率累积,与显示器刷新率解耦。 */
-  private frameAcc = 0
-  /** 上一帧 rAF 时间戳(ms);0 表示循环刚启动尚未取基准。 */
-  private lastTime = 0
+  // 已下发到 RetroArch 的状态,用于把 toggle 命令(FAST_FORWARD/SLOWMOTION/MUTE)
+  // 稳定映射成幂等的目标状态,避免重复发命令切反。
+  private speedMode: SpeedMode = 'normal'
+  private muted = false
 
   constructor(canvas: HTMLCanvasElement) {
+    this.canvas = canvas
+    // 设定内部分辨率;实际显示尺寸由 NesScreen 的 CSS 盒子控制,Nostalgist size:'auto'
+    // 会按元素尺寸自适应,不覆盖这里的宽高比语义。
     canvas.width = WIDTH
     canvas.height = HEIGHT
-    const ctx = canvas.getContext('2d')
-    if (!ctx) throw new Error('无法获取 2D 渲染上下文')
-    this.ctx = ctx
-    this.image = ctx.createImageData(WIDTH, HEIGHT)
-    this.frame8 = new Uint8ClampedArray(this.image.data.buffer)
-    this.frame32 = new Uint32Array(this.image.data.buffer)
   }
 
   /** 载入并启动一个 ROM。 */
   async loadRom(bytes: Uint8Array): Promise<void> {
-    this.stop()
-    this.clearAudioQueue()
-    this.setupAudio()
-    this.nes = new NES({
-      sampleRate: this.audioCtx?.sampleRate ?? 44100,
-      emulateSound: true,
-      onFrame: (frameBuffer) => this.renderFrame(frameBuffer),
-      onAudioSample: (left, right) => this.enqueueAudio(left, right),
+    await this.destroy()
+    this.instance = await Nostalgist.launch({
+      element: this.canvas,
+      core: 'fceumm',
+      rom: { fileName: 'game.nes', fileContent: new Blob([bytes as BlobPart]) },
+      // 核心文件本地打包在 public/cores/;相对路径在 GitHub Pages 子路径与 Tauri 离线下都可解析。
+      resolveCoreJs: (core) => `./cores/${core}_libretro.js`,
+      resolveCoreWasm: (core) => `./cores/${core}_libretro.wasm`,
+      // 不让 RetroArch 监听真实全局键盘,输入完全由前端自定义系统经 press/release 派发,
+      // 避免真实按键被 RetroArch 二次捕获导致重复输入。
+      respondToGlobalEvents: false,
+      retroarchConfig: INPUT_CONFIG,
     })
-    this.nes.loadROM(bytes)
-    this.nes.setFramerate(TARGET_FPS * this.speed)
-    this.start()
+    this.running = true
+    // 新实例回到默认(正常速度、未静音),按当前设置重新应用。
+    this.speedMode = 'normal'
+    this.muted = false
+    this.applySpeed()
+    this.applyMute()
   }
 
-  private setupAudio(): void {
-    if (!this.audioEnabled || this.audioCtx) return
-    const ctx = new AudioContext()
-    // ScriptProcessorNode 已废弃但跨平台稳定,且足够承接 jsnes 的采样回调。
-    const node = ctx.createScriptProcessor(AUDIO_BUFFER_LEN, 0, 2)
-    node.onaudioprocess = (e) => {
-      const outL = e.outputBuffer.getChannelData(0)
-      const outR = e.outputBuffer.getChannelData(1)
-      this.fillAudioOutput(outL, outR)
-    }
-    const gain = ctx.createGain()
-    gain.gain.value = this.volume
-    node.connect(gain)
-    gain.connect(ctx.destination)
-    this.audioCtx = ctx
-    this.scriptNode = node
-    this.gainNode = gain
-  }
-
-  private renderFrame(frameBuffer: Uint32Array): void {
-    for (let i = 0; i < PIXELS_LEN; i++) {
-      // jsnes 输出的像素已是 NES BGR(即小端 ABGR 的低 24 位),
-      // 直接补上不透明 alpha 即可写入 ImageData,不可再交换 R/B。
-      this.frame32[i] = 0xff000000 | frameBuffer[i]
-    }
-    this.image.data.set(this.frame8)
-    this.ctx.putImageData(this.image, 0, 0)
-  }
-
-  private enqueueAudio(left: number, right: number): void {
-    if (!this.audioEnabled) return
-    if (this.audioQueued >= AUDIO_QUEUE_LEN) {
-      this.audioRead = (this.audioRead + 1) % AUDIO_QUEUE_LEN
-      this.audioQueued--
-    }
-    this.audioLeft[this.audioWrite] = left
-    this.audioRight[this.audioWrite] = right
-    this.audioWrite = (this.audioWrite + 1) % AUDIO_QUEUE_LEN
-    this.audioQueued++
-  }
-
-  private fillAudioOutput(outL: Float32Array, outR: Float32Array): void {
-    for (let i = 0; i < outL.length; i++) {
-      if (this.audioQueued === 0) {
-        outL[i] = 0
-        outR[i] = 0
-        continue
+  /** 销毁当前实例(幂等)。 */
+  private async destroy(): Promise<void> {
+    if (this.instance) {
+      try {
+        this.instance.exit()
+      } catch (err) {
+        console.warn('[NES] 退出核心实例出错', err)
       }
-      outL[i] = this.audioLeft[this.audioRead]
-      outR[i] = this.audioRight[this.audioRead]
-      this.audioRead = (this.audioRead + 1) % AUDIO_QUEUE_LEN
-      this.audioQueued--
+      this.instance = null
     }
+    this.running = false
+    this.speedMode = 'normal'
+    this.muted = false
   }
 
-  private clearAudioQueue(): void {
-    this.audioRead = 0
-    this.audioWrite = 0
-    this.audioQueued = 0
+  // ===== 速度(降级):>1 快进、<1 慢放、=1 正常 =====
+  private applySpeed(): void {
+    if (!this.instance) return
+    const target: SpeedMode = this.speed > 1 ? 'ff' : this.speed < 1 ? 'slow' : 'normal'
+    if (target === this.speedMode) return
+    // 先关闭当前非正常态,再开启目标态(FAST_FORWARD/SLOWMOTION 均为 toggle)。
+    if (this.speedMode === 'ff') this.instance.sendCommand('FAST_FORWARD')
+    else if (this.speedMode === 'slow') this.instance.sendCommand('SLOWMOTION')
+    if (target === 'ff') this.instance.sendCommand('FAST_FORWARD')
+    else if (target === 'slow') this.instance.sendCommand('SLOWMOTION')
+    this.speedMode = target
   }
 
-  /** 浏览器要求音频在用户手势后才能播放,需在点击事件里调用。 */
-  resumeAudio(): void {
-    void this.audioCtx?.resume()
+  // ===== 音量(降级):RetroArch 无 setVolume,滑块归结为静音开关 =====
+  private applyMute(): void {
+    if (!this.instance) return
+    const shouldMute = !this.audioEnabled || this.volume <= 0
+    if (shouldMute === this.muted) return
+    this.instance.sendCommand('MUTE')
+    this.muted = shouldMute
   }
+
+  /** 浏览器要求音频在用户手势后才能播放;RetroArch 自管音频上下文,故为空实现(保留调用方兼容)。 */
+  resumeAudio(): void {}
 
   setAudioEnabled(on: boolean): void {
     this.audioEnabled = on
-    if (!on && this.audioCtx) {
-      this.clearAudioQueue()
-      void this.audioCtx.suspend()
-    } else if (on) {
-      this.setupAudio()
-      void this.audioCtx?.resume()
-    }
+    this.applyMute()
   }
 
-  /** 设置音量 0~1。 */
+  /** 设置音量 0~1(降级:0 静音,>0 开启)。 */
   setVolume(v: number): void {
     this.volume = Math.max(0, Math.min(1, v))
-    if (this.gainNode) this.gainNode.gain.value = this.volume
+    this.applyMute()
   }
 
-  /** 设置运行速度倍率(如 0.5/1/2/3)。 */
+  /** 设置运行速度倍率(降级:>1 快进,<1 慢放,=1 正常)。 */
   setSpeed(n: number): void {
     this.speed = n > 0 ? n : 1
-    this.frameAcc = 0
-    this.nes?.setFramerate(TARGET_FPS * this.speed)
+    this.applySpeed()
   }
 
-  private start(): void {
-    if (this.running) return
-    this.running = true
-    this.lastTime = 0
-    this.frameAcc = 0
-    const loop = (now: number) => {
-      if (!this.running || !this.nes) return
-      if (this.lastTime === 0) this.lastTime = now
-      let dt = now - this.lastTime
-      this.lastTime = now
-      if (dt > 250) dt = 250
-      this.frameAcc += (dt / FRAME_MS) * this.speed
-      let steps = Math.floor(this.frameAcc)
-      this.frameAcc -= steps
-      if (steps > 0) {
-        if (steps > 4) steps = 4
-        try {
-          for (let i = 0; i < steps; i++) this.nes.frame()
-        } catch (err) {
-          this.stop()
-          console.error('[NES] 模拟器运行失败', err)
-          throw err
-        }
-      }
-      this.rafId = requestAnimationFrame(loop)
-    }
-    this.rafId = requestAnimationFrame(loop)
-  }
-
-  stop(): void {
-    this.running = false
-    if (this.rafId) {
-      cancelAnimationFrame(this.rafId)
-      this.rafId = 0
-    }
-  }
-
-  /** 暂停帧循环与音频(可恢复)。 */
+  /** 暂停帧循环(可恢复)。 */
   pause(): void {
-    if (!this.nes || !this.running) return
-    this.stop()
-    void this.audioCtx?.suspend()
+    if (this.instance && this.running) {
+      this.instance.pause()
+      this.running = false
+    }
   }
 
   /** 从暂停状态恢复运行。 */
   resume(): void {
-    if (!this.nes || this.running) return
-    this.start()
-    if (this.audioEnabled) void this.audioCtx?.resume()
+    if (this.instance && !this.running) {
+      this.instance.resume()
+      this.running = true
+    }
   }
 
   /** 帧循环是否正在运行。 */
@@ -265,38 +209,30 @@ export class NesRunner {
     return this.running
   }
 
-  /** 中止并卸载当前 ROM,清空画面,回到未载入状态(可再次 loadRom)。 */
+  /** 中止并卸载当前 ROM,回到未载入状态(可再次 loadRom)。 */
   unload(): void {
-    this.stop()
-    void this.audioCtx?.suspend()
-    this.nes = null
-    this.clearAudioQueue()
-    this.ctx.clearRect(0, 0, WIDTH, HEIGHT)
+    void this.destroy()
   }
 
   reset(): void {
-    this.nes?.reset()
-    this.clearAudioQueue()
+    this.instance?.restart()
   }
 
   /** 导出当前引擎状态为存档快照;未载入 ROM 时返回 null。 */
-  saveState(): SaveState | null {
-    if (!this.nes) return null
-    // jsnes 的 toJSON 仅保证 JSON 可序列化(为 JSON.stringify 设计),其产物里可能含有
-    // 结构化克隆(IndexedDB put)拒绝的值,直接入库会抛 DataCloneError。走一次 JSON 往返
-    // 净化成纯数据,既能入库又能被 fromJSON 正确恢复(这正是 jsnes 的标准序列化路径)。
-    return JSON.parse(JSON.stringify(this.nes.toJSON())) as SaveState
+  async saveState(): Promise<SaveState | null> {
+    if (!this.instance) return null
+    const { state } = await this.instance.saveState()
+    return new Uint8Array(await state.arrayBuffer())
   }
 
   /**
    * 从存档快照恢复引擎状态。需先载入对应 ROM(同一卡带)。
-   * 返回是否成功(状态损坏或 mapper 不支持时返回 false,不影响当前运行)。
+   * 返回是否成功(状态损坏或格式不符时返回 false,不影响当前运行)。
    */
-  loadState(state: SaveState): boolean {
-    if (!this.nes) return false
+  async loadState(state: SaveState): Promise<boolean> {
+    if (!this.instance) return false
     try {
-      this.nes.fromJSON(state)
-      this.clearAudioQueue()
+      await this.instance.loadState(new Blob([state as BlobPart]))
       return true
     } catch (err) {
       console.error('[NES] 读取存档失败', err)
@@ -313,29 +249,23 @@ export class NesRunner {
       this.unload()
       return
     }
-    const binding = BUTTON_BINDINGS[button]
-    if (binding) this.nes?.buttonDown(binding.controller, binding.button)
+    const m = NES_BUTTON[button]
+    if (m && this.instance) this.instance.pressDown({ button: m.button, player: m.player })
   }
 
   release(button: Button): void {
-    const binding = BUTTON_BINDINGS[button]
-    if (binding) this.nes?.buttonUp(binding.controller, binding.button)
+    const m = NES_BUTTON[button]
+    if (m && this.instance) this.instance.pressUp({ button: m.button, player: m.player })
   }
 
   /** 是否已载入 ROM。 */
   get loaded(): boolean {
-    return this.nes !== null
+    return this.instance !== null
   }
 
   /** 释放资源。 */
   dispose(): void {
-    this.stop()
-    void this.audioCtx?.close()
-    this.audioCtx = null
-    this.scriptNode = null
-    this.gainNode = null
-    this.nes = null
-    this.clearAudioQueue()
+    void this.destroy()
   }
 }
 

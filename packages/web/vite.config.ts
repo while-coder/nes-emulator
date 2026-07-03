@@ -34,9 +34,10 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2}'],
-        // jsnes 打包后体积较大,放宽单文件预缓存上限。
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+        // 纳入 wasm:libretro 核心(fceumm_libretro.wasm)需被 PWA 预缓存以支持离线。
+        globPatterns: ['**/*.{js,css,html,png,svg,ico,woff2,wasm}'],
+        // fceumm 核心 wasm 约 3MB,放宽单文件预缓存上限留足余量。
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
       },
     }),
   ],
