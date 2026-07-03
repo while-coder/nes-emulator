@@ -250,10 +250,7 @@ async function play(game: RomEntry) {
       }
     }
     if (!bytes) {
-      bytes = await downloadRom(game, {
-        onProgress: (progress) => setProgress(key, progress),
-      })
-      await saveCachedRom(game, bytes)
+      bytes = await downloadAndCache(game, key)
     }
     await touchCachedRom(key)
     await refreshCached()
@@ -265,6 +262,31 @@ async function play(game: RomEntry) {
     clearProgress(key)
     busyKey.value = null
   }
+}
+
+async function downloadOnly(game: RomEntry) {
+  if (busyKey.value !== null) return
+  const key = romKey(game)
+  if (cachedKeys.value.has(key)) return
+  busyKey.value = key
+  error.value = null
+  try {
+    await downloadAndCache(game, key)
+    await refreshCached()
+  } catch (err) {
+    error.value = formatError(err)
+  } finally {
+    clearProgress(key)
+    busyKey.value = null
+  }
+}
+
+async function downloadAndCache(game: RomEntry, key = romKey(game)): Promise<Uint8Array> {
+  const bytes = await downloadRom(game, {
+    onProgress: (progress) => setProgress(key, progress),
+  })
+  await saveCachedRom(game, bytes)
+  return bytes
 }
 
 async function playCached(rom: CachedRom) {
@@ -323,6 +345,12 @@ function playLabel(game: RomEntry): string {
   const key = romKey(game)
   if (busyKey.value === key) return cachedKeys.value.has(key) ? '载入中' : '下载中'
   return cachedKeys.value.has(key) ? '启动' : '下载并启动'
+}
+
+function downloadLabel(game: RomEntry): string {
+  const key = romKey(game)
+  if (busyKey.value === key) return '下载中'
+  return '下载'
 }
 
 function metaLine(game: RomEntry): string {
@@ -472,6 +500,14 @@ function formatError(err: unknown): string {
             <span v-if="busyKey === romKey(game) && progressLabel(game)" class="progress">
               {{ progressLabel(game) }}
             </span>
+            <button
+              v-if="!cachedKeys.has(romKey(game))"
+              class="btn"
+              :disabled="busyKey !== null"
+              @click="downloadOnly(game)"
+            >
+              {{ downloadLabel(game) }}
+            </button>
             <button class="btn primary" :disabled="busyKey !== null" @click="play(game)">
               {{ playLabel(game) }}
             </button>
@@ -805,7 +841,7 @@ function formatError(err: unknown): string {
    再隐藏次要元信息(标签 / 最后使用),让列表区至少 5-6 行可见。 */
 @media (orientation: landscape) and (max-height: 540px) {
   .store-backdrop {
-    padding: 0;
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
   }
   .store-panel {
     max-height: 100%;

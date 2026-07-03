@@ -3,10 +3,12 @@
  *
  * 与旧的 jsnes 实现不同,渲染、音频、帧循环全部由 Nostalgist/RetroArch 内部接管,
  * 本类只负责:载入 ROM、把逻辑按钮映射成 RetroArch 输入、存读档、暂停/继续、
- * 以及速度/音量的(降级)控制。核心文件(fceumm_libretro.js/.wasm)本地打包在
- * 各宿主的 public/cores/ 下,通过相对路径加载,保证离线(Tauri)与 PWA 可用。
+ * 以及速度/音量的(降级)控制。核心文件(fceumm_libretro.js/.wasm)跟随
+ * player 源码作为 Vite asset 打包,保证离线(Tauri)与 PWA 可用。
  */
 import { Nostalgist } from 'nostalgist'
+import fceummCoreJsUrl from '../assets/cores/fceumm_libretro.js?url'
+import fceummCoreWasmUrl from '../assets/cores/fceumm_libretro.wasm?url'
 
 /** 存档快照:RetroArch 的二进制 savestate(可直接存入 IndexedDB)。 */
 export type SaveState = Uint8Array
@@ -115,9 +117,8 @@ export class NesRunner {
       element: this.canvas,
       core: 'fceumm',
       rom: { fileName: 'game.nes', fileContent: new Blob([bytes as BlobPart]) },
-      // 核心文件本地打包在 public/cores/;相对路径在 GitHub Pages 子路径与 Tauri 离线下都可解析。
-      resolveCoreJs: (core) => `./cores/${core}_libretro.js`,
-      resolveCoreWasm: (core) => `./cores/${core}_libretro.wasm`,
+      resolveCoreJs: () => fceummCoreJsUrl,
+      resolveCoreWasm: () => fceummCoreWasmUrl,
       // 不让 RetroArch 监听真实全局键盘,输入完全由前端自定义系统经 press/release 派发,
       // 避免真实按键被 RetroArch 二次捕获导致重复输入。
       respondToGlobalEvents: false,
