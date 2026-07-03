@@ -6,6 +6,7 @@ export { default as ShortcutsPanel } from './components/ShortcutsPanel.vue'
 export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
 export { default as PlayerFooter } from './components/PlayerFooter.vue'
 export { default as PlayerShell } from './components/PlayerShell.vue'
+export { mountPlayerApp } from './mount'
 export { isAndroid, isTauri, pickRomFile, setLastRomName } from './emulator/platform'
 export {
   useRemoteNav,

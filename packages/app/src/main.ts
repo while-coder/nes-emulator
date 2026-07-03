@@ -1,4 +1,4 @@
-import { createApp } from 'vue'
+import { mountPlayerApp } from '@nes-emulator/player'
 import App from './App.vue'
 
-createApp(App).mount('#app')
+mountPlayerApp(App)

@@ -1,3 +1,5 @@
+/// <reference path="../env.d.ts" />
+
 /**
  * NES 运行器:封装 Nostalgist.js(libretro/fceumm wasm 核心)的生命周期与输入。
  *
