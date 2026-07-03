@@ -29,7 +29,16 @@ async function toggle() {
   if (!open.value) return
   await nextTick()
   const r = btn.value?.getBoundingClientRect()
-  if (r) pos.value = { top: r.bottom + 4, left: r.left }
+  if (!r) return
+  // 默认与按钮左对齐向右展开;但菜单按钮常在工具栏最右端,向右展开会溢出屏幕。
+  // 测出下拉实际宽度后把 left 钳到视口内(右溢出即贴右边缘,等效右对齐),两侧留 8px 边距。
+  const margin = 8
+  const vw = window.innerWidth
+  const ddW = dropdownRef.value?.offsetWidth ?? 168
+  let left = r.left
+  if (left + ddW + margin > vw) left = vw - ddW - margin
+  if (left < margin) left = margin
+  pos.value = { top: r.bottom + 4, left }
 }
 function close() {
   open.value = false

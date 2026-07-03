@@ -8,14 +8,12 @@ import {
   SettingsModal,
   ShortcutsPanel,
   ToolbarMenu,
-  settings,
+  PlayerFooter,
   sha256Hex,
   navEnabled,
-  hasGamepad,
   isTv,
   useAutoHideToolbar,
   useFullscreen,
-  useInputMonitor,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
@@ -60,14 +58,10 @@ useRemoteNav({
   onBack: consumeBack, // 主界面返回键 → 分级返回(JS 侧路径,'exit' 时走 process.exit)
 })
 
-// 游戏运行(已载入且未暂停)时自动隐藏顶部工具栏,鼠标移到顶部/触屏点顶部唤出;
+// 游戏运行(已载入且未暂停)时自动隐藏顶部工具栏,点击顶部热区/把手唤出(所有平台统一用点击);
 // TV/遥控无鼠标无触屏,靠暂停(paused → isPlaying 变假)调出工具栏。
 const isPlaying = computed(() => !!romName.value && !paused.value)
-const {
-  visible: toolbarVisible,
-  handlePointerMove: onToolbarPointerMove,
-  toggle: toggleToolbar,
-} = useAutoHideToolbar(isPlaying)
+const { visible: toolbarVisible, toggle: toggleToolbar } = useAutoHideToolbar(isPlaying)
 
 // 焦点环作用到全局(含 Teleport 到 body 的下拉菜单):TV 或已连手柄时给 <html> 标记 tv-nav。
 if (typeof document !== 'undefined') {
@@ -79,9 +73,6 @@ if (typeof document !== 'undefined') {
 // 快捷键修饰键:桌面(Tauri)用 Ctrl,浏览器用 Shift(避开 Ctrl+L/N 等浏览器冲突)。
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
 const modLabel = isTauri ? 'Ctrl' : 'Shift'
-
-// 调试:当前按下的按键(键盘/手柄/遥控),仅在设置开启时显示于状态栏。
-const { label: inputLabel } = useInputMonitor()
 
 async function openRom() {
   const picked = await pickRomFile()
@@ -251,16 +242,17 @@ onBeforeUnmount(() => {
       'is-fullscreen': isFullscreen,
       'is-pseudo-fullscreen': isFullscreen && usePseudo,
     }"
-    @mousemove="onToolbarPointerMove"
   >
-    <!-- 触屏顶部热区:工具栏隐藏时点此唤出(桌面用鼠标 hover) -->
-    <div v-if="isPlaying" class="toolbar-hotzone" @click="toggleToolbar" />
+    <!-- 触屏顶部热区:工具栏隐藏时点此唤出(桌面用鼠标 hover)。
+         用 pointerup 而非 click:部分 WebView 对无 cursor:pointer 的 <div> 不派发 click,
+         pointer 事件不受此限,配合下方 cursor:pointer 确保各平台都能点。 -->
+    <div v-if="isPlaying" class="toolbar-hotzone" @pointerup="toggleToolbar" />
     <!-- 顶部唤出手柄:游戏时工具栏自动隐藏,点此(或桌面把鼠标移到顶部)滑出菜单栏。 -->
     <button
       v-if="isPlaying && !toolbarVisible"
       class="toolbar-handle"
       title="显示菜单栏"
-      @click="toggleToolbar"
+      @pointerup="toggleToolbar"
     >
       ☰
     </button>
@@ -333,14 +325,11 @@ onBeforeUnmount(() => {
       <div v-if="exitHintVisible" class="exit-hint" role="status">再按一次返回键退出</div>
     </Transition>
 
-    <footer class="footer">
-      <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
-      <span v-if="navEnabled && !hasGamepad" class="tv-tip">游戏操作需连接手柄;遥控器用于菜单导航,返回键退出</span>
-      <span v-if="settings.misc.showInputDebug" class="input-debug">
-        按键 <b>{{ inputLabel || '—' }}</b>
-      </span>
-      <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri App' : '浏览器预览' }}</span>
-    </footer>
+    <PlayerFooter
+      :rom-name="romName"
+      :platform-label="isTauri ? 'Tauri App' : '浏览器预览'"
+      @help="helpOpen = true"
+    />
   </div>
 </template>
 
@@ -440,6 +429,10 @@ textarea,
   right: 0;
   height: 52px;
   z-index: 400;
+  /* 部分 WebView 需 cursor:pointer 才把 <div> 视作可点击并派发点击;
+     touch-action:manipulation 去掉双击缩放延迟,点顶部唤出更跟手。 */
+  cursor: pointer;
+  touch-action: manipulation;
 }
 /* 顶部唤出手柄:游戏时工具栏隐藏才出现,点击滑出菜单栏(所有平台可见,便于发现)。 */
 .toolbar-handle {
@@ -519,45 +512,6 @@ textarea,
   color: #888;
   font-size: 13px;
   text-align: center;
-}
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 16px;
-  background: #242424;
-  border-top: 1px solid #343434;
-  color: #aaa;
-  font-size: 12px;
-}
-.footer .meta {
-  color: #777;
-  margin-left: auto;
-}
-/* 调试:当前按下的按键 */
-.footer .input-debug {
-  color: #888;
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-}
-.footer .input-debug b {
-  color: #6ab0ff;
-  font-weight: 600;
-}
-.footer .tv-tip {
-  color: #6ab0ff;
-}
-.link-btn {
-  border: none;
-  background: transparent;
-  color: #6ab0ff;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0;
-}
-.link-btn:hover {
-  text-decoration: underline;
 }
 .exit-hint {
   position: fixed;

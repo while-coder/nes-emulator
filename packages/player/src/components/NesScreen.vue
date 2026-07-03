@@ -452,6 +452,15 @@ onMounted(() => {
   runner = new NesRunner(canvasRef.value!)
   runner.setVolume(settings.audio.volume)
   runner.setSpeed(settings.misc.speed)
+  // 防串键:Nostalgist/RetroArch 会给 canvas 设 tabindex 并在启动/点击时 focus(),
+  // 而其内部键盘 handler 只要 event.target===canvas 就直接处理真实按键 —— 于是画面
+  // 获得焦点后,真实键盘会绕过下面的自定义映射漏进引擎,且引擎虚拟键位(i/j/k/l)恰与
+  // 玩家键冲突(如物理 J 被引擎当成"左"),表现为串键。我们所有输入都经 press/release
+  // 以合成事件(显式带 target=canvas,不依赖焦点)喂引擎,引擎无需真实焦点,故让 canvas
+  // 永不持有焦点:任何获得焦点的瞬间立即 blur,真实按键 target 便不再是 canvas 被引擎忽略。
+  const canvas = canvasRef.value!
+  canvas.addEventListener('focus', () => canvas.blur())
+  canvas.blur()
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('gamepadconnected', autoBindGamepad)

@@ -4,6 +4,7 @@ export { default as RomStorePanel } from './components/RomStorePanel.vue'
 export { default as SaveStatePanel } from './components/SaveStatePanel.vue'
 export { default as ShortcutsPanel } from './components/ShortcutsPanel.vue'
 export { default as ToolbarMenu } from './components/ToolbarMenu.vue'
+export { default as PlayerFooter } from './components/PlayerFooter.vue'
 export { isAndroid, isTv } from './emulator/platform'
 export {
   useRemoteNav,

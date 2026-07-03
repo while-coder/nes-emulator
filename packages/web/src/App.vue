@@ -7,12 +7,11 @@ import {
   SettingsModal,
   ShortcutsPanel,
   ToolbarMenu,
+  PlayerFooter,
   navEnabled,
-  settings,
   sha256Hex,
   useAutoHideToolbar,
   useFullscreen,
-  useInputMonitor,
   useRemoteNav,
   type SaveState,
 } from '@nes-emulator/player'
@@ -52,13 +51,9 @@ useRemoteNav({
   priority: 0,
 })
 
-// 游戏运行(已载入且未暂停)时自动隐藏顶部工具栏,鼠标移到顶部/触屏点顶部唤出。
+// 游戏运行(已载入且未暂停)时自动隐藏顶部工具栏,点击顶部热区/把手唤出(所有平台统一用点击)。
 const isPlaying = computed(() => !!romName.value && !paused.value)
-const {
-  visible: toolbarVisible,
-  handlePointerMove: onToolbarPointerMove,
-  toggle: toggleToolbar,
-} = useAutoHideToolbar(isPlaying)
+const { visible: toolbarVisible, toggle: toggleToolbar } = useAutoHideToolbar(isPlaying)
 
 // 焦点环作用到全局,保证 Teleport 到 body 的下拉菜单也能显示遥控焦点。
 if (typeof document !== 'undefined') {
@@ -70,9 +65,6 @@ if (typeof document !== 'undefined') {
 // 快捷键修饰键:桌面(Tauri)用 Ctrl,浏览器用 Shift(避开 Ctrl+L/N 等浏览器冲突)。
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
 const modLabel = isTauri ? 'Ctrl' : 'Shift'
-
-// 调试:当前按下的按键(键盘/手柄/遥控),仅在设置开启时显示于状态栏。
-const { label: inputLabel } = useInputMonitor()
 
 async function openRom() {
   const picked = await pickRomFile()
@@ -168,16 +160,17 @@ function onSystemAction(action: string) {
       'is-fullscreen': isFullscreen,
       'is-pseudo-fullscreen': isFullscreen && usePseudo,
     }"
-    @mousemove="onToolbarPointerMove"
   >
-    <!-- 触屏顶部热区:工具栏隐藏时点此唤出(桌面用鼠标 hover) -->
-    <div v-if="isPlaying" class="toolbar-hotzone" @click="toggleToolbar" />
+    <!-- 触屏顶部热区:工具栏隐藏时点此唤出(桌面用鼠标 hover)。
+         用 pointerup 而非 click:iOS Safari/PWA 对无 cursor:pointer 的 <div> 不派发 click,
+         点顶部会毫无反应;pointer 事件不受此限,配合下方 cursor:pointer 确保各平台都能点。 -->
+    <div v-if="isPlaying" class="toolbar-hotzone" @pointerup="toggleToolbar" />
     <!-- 顶部唤出手柄:游戏时工具栏自动隐藏,点此(或桌面把鼠标移到顶部)滑出菜单栏。 -->
     <button
       v-if="isPlaying && !toolbarVisible"
       class="toolbar-handle"
       title="显示菜单栏"
-      @click="toggleToolbar"
+      @pointerup="toggleToolbar"
     >
       ☰
     </button>
@@ -189,7 +182,7 @@ function onSystemAction(action: string) {
       <h1 class="title">NES 模拟器</h1>
       <div class="spacer" />
       <!-- 主按钮:最高频操作,任何宽度下都直接可见。 -->
-      <button class="btn" :disabled="loading" @click="openRom">
+      <button class="btn primary" :disabled="loading" @click="openRom">
         {{ loading ? '载入中…' : '打开 ROM' }}
       </button>
       <button
@@ -207,7 +200,7 @@ function onSystemAction(action: string) {
       >
         {{ isFullscreen ? '⛗' : '⛶' }}
       </button>
-      <!-- 次要按钮:桌面平铺展开;触屏/窄屏隐藏,改由下方 ☰ 菜单收纳。 -->
+      <!-- 次要按钮:桌面平铺展开(分三组:内容 | 播放控制 | 系统);触屏/窄屏隐藏,改由 ☰ 菜单收纳。 -->
       <div class="secondary">
         <button class="btn" @click="storeOpen = true">ROM 库 <kbd>{{ modLabel }}+G</kbd></button>
         <ToolbarMenu label="存档">
@@ -224,8 +217,10 @@ function onSystemAction(action: string) {
             存档列表 <kbd>{{ modLabel }}+A</kbd>
           </button>
         </ToolbarMenu>
+        <span class="divider" />
         <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
         <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
+        <span class="divider" />
         <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
           {{ audioOn ? '🔊' : '🔇' }}
         </button>
@@ -277,13 +272,12 @@ function onSystemAction(action: string) {
       <p v-if="!romName" class="hint">点击「打开 ROM」选择一个 .nes 文件开始游戏</p>
     </main>
 
-    <footer class="footer">
-      <button class="link-btn" @click="helpOpen = true">查看所有快捷键</button>
-      <span v-if="settings.misc.showInputDebug" class="input-debug">
-        按键 <b>{{ inputLabel || '—' }}</b>
-      </span>
-      <span class="meta">{{ romName ?? '未载入' }} · {{ isTauri ? 'Tauri 模式' : 'Web 模式' }}</span>
-    </footer>
+    <PlayerFooter
+      :rom-name="romName"
+      :platform-label="isTauri ? 'Tauri 模式' : 'Web 模式'"
+      hide-on-touch
+      @help="helpOpen = true"
+    />
   </div>
 </template>
 
@@ -374,15 +368,20 @@ textarea,
 .toolbar.floating.hidden {
   transform: translateY(-100%);
 }
-/* 顶部热区:仅游戏运行时存在,层级低于工具栏,工具栏隐藏后露出以接收触屏唤出点击。
-   从安全区下方开始,避开屏幕最顶边缘的系统手势区(下拉通知/状态栏),否则点击会被系统拦截。 */
+/* 顶部热区:仅游戏运行时存在,层级低于工具栏,工具栏隐藏后露出以接收唤出点击。
+   从屏幕最顶(top:0)开始,并把安全区高度并入 height:否则 inset 会把整块响应区整体下移,
+   出现「点屏幕最顶没反应、要往下点」;单击(非从边缘下滑)不会触发系统下拉栏,故可贴顶。 */
 .toolbar-hotzone {
   position: absolute;
-  top: max(0px, env(safe-area-inset-top));
+  top: 0;
   left: 0;
   right: 0;
-  height: 52px;
+  height: calc(52px + max(0px, env(safe-area-inset-top)));
   z-index: 400;
+  /* iOS 需 cursor:pointer 才把 <div> 视作可点击元素并派发点击事件;
+     touch-action:manipulation 去掉双击缩放延迟,点顶部唤出更跟手。 */
+  cursor: pointer;
+  touch-action: manipulation;
 }
 /* 顶部唤出手柄:游戏时工具栏隐藏才出现,点击滑出菜单栏(所有平台可见,便于发现)。 */
 .toolbar-handle {
@@ -434,6 +433,14 @@ textarea,
   opacity: 0.5;
   cursor: default;
 }
+/* 主操作(打开 ROM):唯一强调色按钮,和一排灰色次要按钮拉开层次。 */
+.btn.primary {
+  background: #2f6bd8;
+  font-weight: 600;
+}
+.btn.primary:hover:not(:disabled) {
+  background: #3d7ce8;
+}
 .btn kbd {
   margin-left: 4px;
   padding: 1px 5px;
@@ -449,6 +456,33 @@ textarea,
   padding: 6px 9px;
   font-size: 15px;
   line-height: 1;
+}
+/* 次要区:桌面平铺时作为一行 flex,内部分组由 .divider 分隔。 */
+.secondary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* 组间竖向分隔线,视觉上把「内容 / 播放控制 / 系统」三组分开。 */
+.divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: #3d3d3d;
+  flex-shrink: 0;
+}
+/* ☰ 更多菜单:桌面用平铺的 .secondary,故默认隐藏;窄屏 / 触屏才切换出来(见媒体查询)。 */
+.more-menu {
+  display: none;
+}
+/* 窄屏或触屏:收起平铺的次要按钮,改用 ☰ 下拉,避免横向滚动 / 换行。 */
+@media (max-width: 720px), (pointer: coarse) {
+  .secondary {
+    display: none;
+  }
+  .more-menu {
+    display: block;
+  }
 }
 .stage {
   flex: 1;
@@ -467,50 +501,6 @@ textarea,
   font-size: 13px;
   text-align: center;
 }
-.footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px 16px;
-  background: #252525;
-  border-top: 1px solid #333;
-  color: #aaa;
-  font-size: 12px;
-}
-.footer .meta {
-  color: #666;
-  margin-left: auto;
-}
-/* 调试:当前按下的按键 */
-.footer .input-debug {
-  color: #888;
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-}
-.footer .input-debug b {
-  color: #6ab0ff;
-  font-weight: 600;
-}
-.link-btn {
-  border: none;
-  background: transparent;
-  color: #6ab0ff;
-  cursor: pointer;
-  font-size: 12px;
-  padding: 0;
-}
-.link-btn:hover {
-  text-decoration: underline;
-}
-
-/* 触屏设备:footer 的键盘按键提示对手机无用,直接隐藏让出垂直空间。 */
-@media (pointer: coarse) {
-  .footer {
-    display: none;
-  }
-}
-
 /* 手机横屏(短高度):压缩工具栏、去掉 stage padding,把画面顶到最大。
    NES 比例接近 4:3,横屏下限制因素是高度,省下的每一像素都直接转成画面宽度。 */
 @media (orientation: landscape) and (max-height: 540px) {
