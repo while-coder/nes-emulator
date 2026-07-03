@@ -2,9 +2,9 @@
 
 ## Directory structure
 
-- `packages/web/`: Vue/Vite Web package, deployable on its own.
-- `packages/player/`: shared NES player package with display, controls, settings, runtime wiring, and the libretro core assets.
-- `packages/app/`: Tauri app shell for desktop, Android, and iOS. It owns its own Vue entry and can add native cache/log/file-system behavior without changing the Web package.
+- `packages/web/`: thin Vue/Vite Web host, deployable on its own.
+- `packages/player/`: shared NES player package with the app shell, display, controls, settings, runtime wiring, and the libretro core assets.
+- `packages/app/`: thin Tauri app host for desktop, Android, and iOS. Native exit/back handling stays here; shared player UI stays in `packages/player`.
 - `scripts/`: repository-level helper scripts.
 
 ## Build

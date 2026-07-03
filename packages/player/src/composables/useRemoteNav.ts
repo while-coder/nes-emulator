@@ -193,7 +193,7 @@ function isMultilineTextEntry(el: Element | null): boolean {
 function pollPads(): void {
   rafId = requestAnimationFrame(pollPads)
   const top = topInstance()
-  // 无活跃实例(如桌面 isTv 为假、或当前无导航):跳过手柄读取并清边沿状态,
+  // 无活跃实例(如当前无导航):跳过手柄读取并清边沿状态,
   // 既省掉每帧 getGamepads,也避免下次激活时把"按住未松"误判成新按下。
   if (!top) {
     padPrev.up = false
