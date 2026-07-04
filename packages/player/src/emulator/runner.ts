@@ -103,13 +103,34 @@ export class NesRunner {
   // 稳定映射成幂等的目标状态,避免重复发命令切反。
   private speedMode: SpeedMode = 'normal'
   private muted = false
+  // 保存 canvas 初始状态,以便每次 destroy 后恢复。
+  // Nostalgist launch 时会:
+  //   1) 给 canvas 写 inline appearance 样式(backgroundColor / imageRendering);
+  //   2) 劫持 canvas.style.removeProperty,拦住 width/height 不让删;
+  //   3) Emscripten runtime 会把 canvas 的 CSS 尺寸写死为内部分辨率(256x240)。
+  // 二次 launch 时这些遮盖 → canvas 变成 256x240 硬尺寸,跨出 frame 又位移。
+  private readonly originalCssText: string
+  private readonly originalRemoveProperty: (property: string) => string
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
+    this.originalCssText = canvas.style.cssText
+    this.originalRemoveProperty = canvas.style.removeProperty.bind(canvas.style)
     // 设定内部分辨率;实际显示尺寸由 NesScreen 的 CSS 盒子控制,Nostalgist size:'auto'
     // 会按元素尺寸自适应,不覆盖这里的宽高比语义。
     canvas.width = WIDTH
     canvas.height = HEIGHT
+  }
+
+  /** 把 canvas 恢复到 launch 前的状态,清理 Nostalgist / Emscripten 遗留的 inline 样式与方法劫持。 */
+  private restoreCanvas(): void {
+    // 先把被劫持的 removeProperty 换回原生,下面 cssText 重置才不会丢掉 width/height。
+    this.canvas.style.removeProperty = this.originalRemoveProperty
+    // 一句把所有 inline 样式回到初始值(空字符串也能用,相当于清空)。
+    this.canvas.style.cssText = this.originalCssText
+    // 恢复内部分辨率属性(不是样式,是 canvas 自己的 width/height 属性)。
+    this.canvas.width = WIDTH
+    this.canvas.height = HEIGHT
   }
 
   /** 载入并启动一个 ROM。 */
@@ -146,6 +167,9 @@ export class NesRunner {
         console.warn('[NES] 退出核心实例出错', err)
       }
       this.instance = null
+      // 清理 Nostalgist / Emscripten 写入的 inline 样式与方法劫持,不然二次 launch 时
+      // canvas 会带着硬尺寸 256x240,导致画面变小并往下堆。
+      this.restoreCanvas()
     }
     this.running = false
     this.speedMode = 'normal'
