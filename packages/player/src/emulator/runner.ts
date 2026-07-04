@@ -138,7 +138,10 @@ export class NesRunner {
   private async destroy(): Promise<void> {
     if (this.instance) {
       try {
-        this.instance.exit()
+        // 关键:removeCanvas: false 保留 Vue 持有的 <canvas>。
+        // 默认 exit() 会把 canvas 从 DOM 移除,下次 launch 仍传入同一 canvasRef 时
+        // Nostalgist 会挂新的 canvas 到别处,frame 里那块变成死画布 -> 二次加载黑屏。
+        this.instance.exit({ removeCanvas: false })
       } catch (err) {
         console.warn('[NES] 退出核心实例出错', err)
       }
