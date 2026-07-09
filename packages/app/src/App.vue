@@ -2,6 +2,7 @@
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { exit } from '@tauri-apps/plugin-process'
 import { PlayerShell, isTauri } from '@nes-emulator/player'
+import { UpdaterDialog } from '@while-coder/tauri-updater-vue'
 
 const shell = ref<InstanceType<typeof PlayerShell> | null>(null)
 
@@ -46,6 +47,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <UpdaterDialog />
   <PlayerShell
     ref="shell"
     title="NES/FC 模拟器"
