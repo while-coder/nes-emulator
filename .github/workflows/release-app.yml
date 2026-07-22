@@ -33,12 +33,13 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-      - name: Delete existing GitHub Release
+      - name: Recreate GitHub Release
         uses: while-coder/workflows/.github/actions/recreate-github-release@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           tag: ${{ needs.check.outputs.tag }}
-          create: 'false'
+          title: nes-emulator v${{ needs.check.outputs.version }}
+          notes: ${{ needs.check.outputs.notes }}
 
   release-desktop:
     needs: [check, prepare-release]
@@ -47,14 +48,9 @@ jobs:
       project-path: packages/app
       cargo-lock-path: packages/app/src-tauri/Cargo.lock
       cargo-target-path: packages/app/src-tauri/target
-      cache-key-prefix: cargo-app
       tag-name: ${{ needs.check.outputs.tag }}
       release-name: nes-emulator v${{ needs.check.outputs.version }}
       release-body: ${{ needs.check.outputs.notes }}
-      release-draft: true
-      matrix-json: >-
-        [{"platform":"macos-latest","args":"--target aarch64-apple-darwin","rust-target":"aarch64-apple-darwin"},{"platform":"macos-latest","args":"--target x86_64-apple-darwin","rust-target":"x86_64-apple-darwin"},{"platform":"ubuntu-22.04","args":"","rust-target":""},{"platform":"windows-latest","args":"","rust-target":""}]
-      node-version: '20'
     secrets: inherit
 
   release-android:
@@ -65,13 +61,10 @@ jobs:
       project-path: packages/app
       cargo-lock-path: packages/app/src-tauri/Cargo.lock
       cargo-target-path: packages/app/src-tauri/target
-      cache-key-prefix: android-cargo-app
       tag-name: ${{ needs.check.outputs.tag }}
       version: ${{ needs.check.outputs.version }}
       asset-prefix: nes-emulator
       build-command: pnpm run android:build -- --apk --aab
-      node-version: '20'
-      android-ndk-version: 27.0.12077973
     secrets: inherit
 
   release-ios:
@@ -82,11 +75,20 @@ jobs:
       project-path: packages/app
       cargo-lock-path: packages/app/src-tauri/Cargo.lock
       cargo-target-path: packages/app/src-tauri/target
-      cache-key-prefix: ios-cargo-app
       tag-name: ${{ needs.check.outputs.tag }}
       version: ${{ needs.check.outputs.version }}
       asset-prefix: nes-emulator
       init-command: if [ ! -d src-tauri/gen/apple ]; then pnpm tauri ios init --ci; fi
       build-command: pnpm run ios:build -- --target aarch64 --no-sign --ci
-      node-version: '20'
+    secrets: inherit
+
+  publish-manifest:
+    needs: [check, release-desktop]
+    if: ${{ !cancelled() && needs.release-desktop.result == 'success' }}
+    uses: while-coder/workflows/.github/workflows/tauri-updater-manifest.yml@main
+    with:
+      product-prefix: nes-emulator
+      tag-name: ${{ needs.check.outputs.tag }}
+      version: ${{ needs.check.outputs.version }}
+      release-notes: ${{ needs.check.outputs.notes }}
     secrets: inherit
