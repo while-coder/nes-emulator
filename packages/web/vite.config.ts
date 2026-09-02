@@ -44,7 +44,7 @@ export default defineConfig({
   // GitHub Pages 子路径部署需要相对资源路径。
   base: './',
   server: {
-    port: 5180,
+    port: 1800,
     strictPort: true,
   },
   build: {

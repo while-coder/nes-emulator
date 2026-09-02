@@ -1,5 +1,20 @@
 #!/usr/bin/env node
+/**
+ * 一键发版：打印摘要 → 二次确认 → bump 版本 → commit → (tag 已存在时确认清理) → 打 tag → 推送。
+ * 推送 tag 后触发 "Release App" workflow，由 GitHub Actions 完成构建与发布。
+ *
+ * 确认规则（参考 wmdebugger/scripts/release.js）：
+ *   - tag 已存在（本地或远程）：y/N 确认后删除旧 tag 再重打并推送
+ *   - tag 不存在：回车确认发版，Ctrl+C 取消
+ *
+ * 用法：
+ *   npm run release                # 用当前版本，tag & push
+ *   npm run release patch          # bump patch
+ *   npm run release minor|major
+ *   npm run release 0.2.0          # 指定版本号
+ */
 const { execSync } = require('child_process');
+const readline = require('readline');
 const path = require('path');
 const fs = require('fs');
 
@@ -24,7 +39,11 @@ function run(cmd, opts = {}) {
   return execSync(cmd, { stdio: 'inherit', ...opts });
 }
 
-function commandSucceeds(cmd) {
+function sh(cmd) {
+  return execSync(cmd, { encoding: 'utf8' }).trim();
+}
+
+function ok(cmd) {
   try {
     execSync(cmd, { stdio: 'ignore' });
     return true;
@@ -49,15 +68,22 @@ function bumpVersion(version, type) {
 }
 
 function isWorkingTreeClean() {
-  return execSync('git status --porcelain', { encoding: 'utf8' }).trim().length === 0;
+  return sh('git status --porcelain').length === 0;
 }
 
 function tagExists(tag) {
-  return commandSucceeds(`git rev-parse -q --verify "refs/tags/${tag}"`);
+  return ok(`git rev-parse -q --verify "refs/tags/${tag}"`);
 }
 
 function remoteTagExists(tag) {
-  return commandSucceeds(`git ls-remote --exit-code origin "refs/tags/${tag}"`);
+  try {
+    execSync(`git ls-remote --exit-code origin "refs/tags/${tag}"`, { stdio: 'ignore' });
+    return true;
+  } catch (error) {
+    // git ls-remote 在远程可达但 ref 不存在时返回 2；其他错误（网络/权限）必须中断发版
+    if (error && typeof error === 'object' && error.status === 2) return false;
+    throw new Error(`无法检查 origin 上的 tag ${tag}，请确认网络和 Git 权限`);
+  }
 }
 
 function deleteExistingTag(tag) {
@@ -72,7 +98,7 @@ function deleteExistingTag(tag) {
 function main() {
   const arg = process.argv[2];
   const root = path.resolve(__dirname, '..');
-  // 版本以根 package.json 为准（tauri.conf.json 的 version 指向 ../../../package.json）
+  // 版本以根 package.json 为准
   const pkgPath = path.join(root, PKG_JSON);
   const pkg = readJson(pkgPath);
 
@@ -99,32 +125,94 @@ function main() {
 
   const tag = `${TAG_PREFIX}${nextVersion}`;
 
-  console.log(`current : ${currentVersion}`);
-  console.log(`next    : ${nextVersion}`);
-  console.log(`tag     : ${tag}`);
-  console.log('');
-
-  if (versionChanged) {
-    if (!isWorkingTreeClean()) {
-      console.error('error: working tree not clean — commit or stash before releasing');
-      process.exit(1);
-    }
-
-    pkg.version = nextVersion;
-    writeJson(pkgPath, pkg);
-
-    run(`git add "${PKG_JSON}"`);
-    run(`git commit -m "chore: release v${nextVersion}"`);
+  // ---------- 前置检查（任何破坏性操作之前） ----------
+  let status;
+  try {
+    status = sh('git status --porcelain');
+  } catch {
+    console.error('✗ 不在 git 仓库中');
+    process.exit(1);
+  }
+  if (versionChanged && status) {
+    console.error('✗ 工作区有未提交改动，请先 commit 或 stash：');
+    console.error(status);
+    process.exit(1);
   }
 
-  deleteExistingTag(tag);
+  const branch = sh('git rev-parse --abbrev-ref HEAD');
+  if (branch === 'HEAD') {
+    console.error('✗ 当前处于 detached HEAD，请先 checkout 到发布分支');
+    process.exit(1);
+  }
 
-  run(`git tag -a "${tag}" -m "nes-emulator v${nextVersion}"`);
-  run('git push');
-  run(`git push origin "${tag}"`);
+  const originUrl = sh('git remote get-url origin');
 
-  console.log('');
-  console.log(`✓ pushed tag ${tag} — workflow "${WORKFLOW_NAME}" triggered`);
+  // ---------- 打印发版摘要 ----------
+  console.log('────────────────────────────────────────');
+  console.log(`  当前版本:  ${currentVersion}`);
+  console.log(`  发布版本:  ${tag}`);
+  console.log(`  分支:      ${branch}`);
+  console.log(`  远程:      ${originUrl}`);
+  console.log('────────────────────────────────────────');
+
+  // ---------- tag 状态检测：确认前说明将删除已有还是新建 ----------
+  const tagLocal = tagExists(tag);
+  const tagRemote = remoteTagExists(tag);
+  const tagWhere = [
+    tagLocal ? '本地' : null,
+    tagRemote ? 'origin 远程' : null,
+  ].filter(Boolean).join('、');
+
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const ask = (prompt) => new Promise((resolve) => rl.question(prompt, resolve));
+
+  (async () => {
+    let needClean = false;
+    if (tagLocal || tagRemote) {
+      console.log(`  tag 状态:  已存在（${tagWhere}）→ 将删除后重打`);
+      const ans = await ask(`⚠ tag ${tag} 已存在（${tagWhere}）。删除后重新打 tag 并推送？[y/N] `);
+      if (ans.trim().toLowerCase() !== 'y') {
+        console.log('✗ 已取消，未删除任何 tag，发版中止');
+        rl.close();
+        process.exit(1);
+      }
+      needClean = true;
+    } else {
+      console.log('  tag 状态:  新建');
+      await ask('回车确认发版，Ctrl+C 取消...');
+    }
+
+    // ---------- 确认通过后才执行写操作 ----------
+    if (versionChanged) {
+      if (!isWorkingTreeClean()) {
+        console.error('✗ 工作区有未提交改动，请先 commit 或 stash 后再发版');
+        process.exit(1);
+      }
+
+      pkg.version = nextVersion;
+      writeJson(pkgPath, pkg);
+
+      run(`git add "${PKG_JSON}"`);
+      run(`git commit -m "chore: release v${nextVersion}"`);
+    }
+
+    if (needClean) {
+      deleteExistingTag(tag);
+      console.log(`✓ 已清理旧 tag ${tag}`);
+    }
+
+    run(`git tag -a "${tag}" -m "nes-emulator v${nextVersion}"`);
+    run('git push');
+    run(`git push origin "${tag}"`);
+
+    console.log('');
+    console.log(`✓ 发版完成！tag ${tag} 已推送 — workflow "${WORKFLOW_NAME}" 已触发`);
+    rl.close();
+    process.exit(0);
+  })().catch((error) => {
+    console.error(`✗ ${error instanceof Error ? error.message : String(error)}`);
+    process.exit(1);
+  });
 }
 
 main();

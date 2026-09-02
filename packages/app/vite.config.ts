@@ -10,13 +10,13 @@ export default defineConfig({
   base: './',
   server: {
     host: host || false,
-    port: 5181,
+    port: 1801,
     strictPort: true,
     hmr: host
       ? {
           protocol: 'ws',
           host,
-          port: 5182,
+          port: 1802,
         }
       : undefined,
   },
