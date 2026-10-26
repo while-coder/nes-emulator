@@ -8,8 +8,9 @@ on:
       - 'package.json'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
-      - 'packages/player/**'
-      - 'packages/web/**'
+      - 'packages/ui/**'
+      - 'apps/icon/**'
+      - 'apps/pwa/**'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -41,13 +42,13 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @nes-emulator/web run build
+      - run: pnpm --filter @nes-emulator/pwa run build
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/web/dist
+          path: apps/pwa/dist
 
   deploy:
     needs: build

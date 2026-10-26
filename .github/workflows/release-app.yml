@@ -45,9 +45,9 @@ jobs:
     needs: [check, prepare-release]
     uses: while-coder/workflows/.github/workflows/tauri-desktop-release.yml@main
     with:
-      project-path: packages/app
-      cargo-lock-path: packages/app/src-tauri/Cargo.lock
-      cargo-target-path: packages/app/src-tauri/target
+      project-path: apps/app
+      cargo-lock-path: apps/app/src-tauri/Cargo.lock
+      cargo-target-path: apps/app/src-tauri/target
       tag-name: ${{ needs.check.outputs.tag }}
       release-name: nes-emulator v${{ needs.check.outputs.version }}
       release-body: ${{ needs.check.outputs.notes }}
@@ -58,12 +58,13 @@ jobs:
     if: ${{ !cancelled() && needs.release-desktop.result == 'success' }}
     uses: while-coder/workflows/.github/workflows/tauri-android-release.yml@main
     with:
-      project-path: packages/app
-      cargo-lock-path: packages/app/src-tauri/Cargo.lock
-      cargo-target-path: packages/app/src-tauri/target
+      project-path: apps/app
+      cargo-lock-path: apps/app/src-tauri/Cargo.lock
+      cargo-target-path: apps/app/src-tauri/target
       tag-name: ${{ needs.check.outputs.tag }}
       version: ${{ needs.check.outputs.version }}
       asset-prefix: nes-emulator
+      init-command: pnpm android:init
       build-command: pnpm run android:build -- --apk --aab
     secrets: inherit
 
@@ -72,13 +73,13 @@ jobs:
     if: ${{ !cancelled() && needs.release-desktop.result == 'success' }}
     uses: while-coder/workflows/.github/workflows/tauri-ios-unsigned.yml@main
     with:
-      project-path: packages/app
-      cargo-lock-path: packages/app/src-tauri/Cargo.lock
-      cargo-target-path: packages/app/src-tauri/target
+      project-path: apps/app
+      cargo-lock-path: apps/app/src-tauri/Cargo.lock
+      cargo-target-path: apps/app/src-tauri/target
       tag-name: ${{ needs.check.outputs.tag }}
       version: ${{ needs.check.outputs.version }}
       asset-prefix: nes-emulator
-      init-command: if [ ! -d src-tauri/gen/apple ]; then pnpm tauri ios init --ci; fi
+      init-command: pnpm ios:init
       build-command: pnpm run ios:build -- --target aarch64 --no-sign --ci
     secrets: inherit
 

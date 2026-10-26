@@ -13,7 +13,7 @@
  *   npm run release minor|major
  *   npm run release 0.2.0          # 指定版本号
  */
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const readline = require('readline');
 const path = require('path');
 const fs = require('fs');
@@ -192,7 +192,10 @@ function main() {
       pkg.version = nextVersion;
       writeJson(pkgPath, pkg);
 
-      run(`git add "${PKG_JSON}"`);
+      execFileSync(process.execPath, [path.join(root, 'scripts/sync-versions.cjs')], { cwd: root, stdio: 'inherit' });
+      execFileSync('git', ['add', PKG_JSON, 'apps/app/package.json', 'apps/pwa/package.json',
+        'packages/ui/package.json', 'apps/app/src-tauri/Cargo.toml', 'apps/app/src-tauri/Cargo.lock'],
+        { cwd: root, stdio: 'inherit' });
       run(`git commit -m "chore: release v${nextVersion}"`);
     }
 

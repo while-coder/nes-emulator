@@ -1,0 +1,13 @@
+{
+  "name": "@nes-emulator/ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "nostalgist": "0.21.1",
+    "vue": "catalog:"
+  },
+  "version": "0.1.0"
+}
