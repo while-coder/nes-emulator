@@ -142,8 +142,23 @@ function finishDirection() {
   if (pointerId !== null) releaseCapture(dpadRef.value, pointerId)
 }
 
+/** 按键热区外扩:补偿圆形按键命中的圆角缺口与手指落点偏差。 */
+const BUTTON_HOTZONE = 6
+
+/** 按下点是否落在任一实体按键(A/B/连发/Select/Start/菜单)的热区内。 */
+function overButton(clientX: number, clientY: number): boolean {
+  for (const el of controlsRef.value?.querySelectorAll<HTMLElement>('.akey, .fkey') ?? []) {
+    const r = el.getBoundingClientRect()
+    if (clientX >= r.left - BUTTON_HOTZONE && clientX <= r.right + BUTTON_HOTZONE
+      && clientY >= r.top - BUTTON_HOTZONE && clientY <= r.bottom + BUTTON_HOTZONE) return true
+  }
+  return false
+}
+
 function onDpadDown(e: PointerEvent) {
   if (props.disabled || settings.misc.touchPad === 'never' || dirPointerId !== null || e.button !== 0) return
+  // 布局重叠时按键优先:落点在按键热区内(含穿透到摇杆的)不驱动方向。
+  if (overButton(e.clientX, e.clientY)) return
   e.preventDefault()
   // 先捕获再记录状态；捕获失败时不留下按住标记。
   dpadRef.value?.setPointerCapture(e.pointerId)
