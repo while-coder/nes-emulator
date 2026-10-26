@@ -16,6 +16,9 @@ import { Button } from './runner'
 export type Aspect = '1:1' | '8:7' | '4:3'
 /** 触屏手柄显示策略。 */
 export type TouchPadMode = 'auto' | 'always' | 'never'
+export type TouchLayoutGroup = 'dpad' | 'actions' | 'functionsLeft' | 'functionsRight'
+export type TouchLayoutOrientation = 'portrait' | 'landscape'
+export type TouchLayout = Record<TouchLayoutOrientation, Partial<Record<TouchLayoutGroup, { x: number; y: number }>>>
 
 /** 逻辑手柄按钮(与玩家无关);设置与运行时输入派发均以此为单位。 */
 export enum PadButton {
@@ -48,6 +51,7 @@ export interface PlayerConfig {
 export type Padmap = Record<number, string>
 
 export interface Settings {
+  touchLayout: TouchLayout
   /** 玩家输入配置,索引 0=玩家1、1=玩家2。 */
   players: PlayerConfig[]
   display: {
@@ -149,6 +153,7 @@ export function defaultPadmap(): Padmap {
 
 function defaultSettings(): Settings {
   return {
+    touchLayout: { portrait: {}, landscape: {} },
     players: [
       // 玩家1:键盘默认 WASD(方向)+ JK(B/A)+ UI(连发)。
       {
@@ -226,7 +231,20 @@ function merge(base: Settings, saved: unknown): Settings {
   const legacy = (saved as { gamepadProfiles?: Record<string, Padmap> }).gamepadProfiles ?? {}
   const pads = listGamepads()
   const profiles = Object.values(legacy)
+  const touchLayout: TouchLayout = { portrait: {}, landscape: {} }
+  for (const orientation of ['portrait', 'landscape'] as const) {
+    for (const group of ['dpad', 'actions', 'functionsLeft', 'functionsRight'] as const) {
+      const position = s.touchLayout?.[orientation]?.[group]
+      if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
+        touchLayout[orientation][group] = {
+          x: Math.max(0, Math.min(1, position.x)),
+          y: Math.max(0, Math.min(1, position.y)),
+        }
+      }
+    }
+  }
   return {
+    touchLayout,
     players: base.players.map((p, i) => {
       const old = savedPlayers[i]
       const merged = mergePlayer(p, old)

@@ -41,7 +41,12 @@ const progress = ref<DownloadProgress | null>(null)
 const editingKey = ref<string | null>(null)
 const editingText = ref('')
 
-defineExpose({ busyKey })
+async function refreshCreatedSave() {
+  filter.value = props.currentRomKey ? 'current' : 'all'
+  query.value = ''
+  await refresh()
+}
+defineExpose({ busyKey, refreshCreatedSave })
 
 watch(
   open,
@@ -512,5 +517,28 @@ function formatError(err: unknown): string {
     padding: 0 10px;
     font-size: 12px;
   }
+}
+</style>
+
+<style scoped>
+@media (pointer: coarse) {
+  .store-tools {
+    flex-shrink: 0;
+    gap: var(--player-control-gap);
+    padding: var(--player-tools-padding) 12px;
+  }
+  .store-summary {
+    flex-shrink: 0;
+    min-height: 24px;
+    padding: 4px 12px;
+    gap: 4px;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .save-list { padding: 8px 12px; gap: var(--player-control-gap); }
+  .save-card { padding: var(--player-card-padding); gap: var(--player-control-gap); }
+  .save-actions { gap: var(--player-control-gap); }
+  .meta { margin-top: 3px; font-size: 12px; line-height: 1.3; }
+  .save-card + .save-card { margin-top: var(--player-control-gap); }
 }
 </style>

@@ -34,9 +34,11 @@ defineProps<{ currentRomKey?: string | null }>()
 const emit = defineEmits<{
   loadRom: [{ name: string; bytes: Uint8Array; key: string }]
   loadSave: [LoadSavePayload]
+  editTouchLayout: []
 }>()
 const libraryPanel = ref<InstanceType<typeof RomStorePanel> | null>(null)
 const savePanel = ref<InstanceType<typeof SaveStatePanel> | null>(null)
+defineExpose({ refreshSaves: () => savePanel.value?.refreshCreatedSave() })
 const busy = computed(() => libraryPanel.value?.busyKey != null || savePanel.value?.busyKey != null)
 const libraryOpen = computed({ get: () => open.value && tab.value === 'library', set: (v) => { if (!v) open.value = false } })
 const savesOpen = computed({ get: () => open.value && tab.value === 'saves', set: (v) => { if (!v) open.value = false } })
@@ -273,6 +275,11 @@ onBeforeUnmount(() => {
         <SaveStatePanel v-else-if="tab === 'saves'" ref="savePanel" v-model:open="savesOpen" :current-rom-key="currentRomKey" @load="emit('loadSave', $event)" />
         <!-- 按键 -->
         <div v-else-if="tab === 'keys'" class="keys">
+          <div class="touch-layout-setting">
+            <span>触屏按键布局</span>
+            <SButton @click="emit('editTouchLayout')">调整位置</SButton>
+          </div>
+          <p class="tip">拖动摇杆、A/B 和两组功能键调整位置，横屏与竖屏分别保存。</p>
           <!-- 玩家切换 -->
           <div class="player-switch">
             <SButton
@@ -407,6 +414,7 @@ onBeforeUnmount(() => {
   padding: 16px;
   overflow-y: auto;
 }
+.touch-layout-setting { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .player-switch {
   display: flex;
   gap: 8px;
@@ -533,9 +541,91 @@ onBeforeUnmount(() => {
   .key-bind { padding: 6px 4px; }
   .pad-assign .remote-select { min-width: 0; max-width: 65%; }
 }
+@media (orientation: landscape) and (max-height: 540px) {
+  .settings-content {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+  .tabs {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 6px;
+    overflow-y: auto;
+    border-bottom: none;
+    border-right: 1px solid #3a3a3a;
+  }
+  .tab { flex: 0 0 auto; width: 100%; padding: 6px; }
+  .settings-actions {
+    grid-column: 2;
+    grid-row: 1;
+    align-items: center;
+    min-height: 52px;
+    padding: 4px 56px 4px 12px;
+    border-bottom: 1px solid #3a3a3a;
+  }
+  .settings-actions:empty { display: flex; }
+  .body { grid-column: 2; grid-row: 2; padding: 8px 12px; }
+  .body.list-body { padding: 0; }
+}
 </style>
 
 <style>
 .settings-modal .s-modal-body { flex: 1; }
 .settings-modal .s-modal-header { flex-shrink: 0; }
+@media (orientation: landscape) and (max-height: 540px) {
+  .settings-modal.s-modal-overlay {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  .settings-modal .s-modal-box.fill-height {
+    position: relative;
+    width: 100% !important;
+    height: 100%;
+    max-height: 100%;
+    border: none;
+    border-radius: 0;
+  }
+  .settings-modal .s-modal-header {
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    z-index: 1;
+    padding: 0;
+    border: none;
+  }
+  .settings-modal .s-modal-titles {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .settings-modal .s-icon-close { width: 44px; height: 44px; }
+}
+</style>
+
+<style scoped>
+@media (pointer: coarse) {
+  .tabs { gap: 4px; padding: 4px 8px; }
+  .tab { min-height: var(--player-control-height); padding: 4px 8px; }
+  .settings-actions {
+    min-height: calc(var(--player-control-height) + 12px);
+    gap: var(--player-control-gap);
+    padding-block: var(--player-tools-padding);
+  }
+  .body:not(.list-body) { padding: 8px 12px; }
+  .row, .pad-assign { min-height: calc(var(--player-control-height) + 8px); padding-block: 4px; gap: 8px; }
+  .row .remote-select, .row input[type='range'] { min-width: 0; width: 60%; max-width: 240px; }
+  .key-head, .key-row { padding-block: 3px; }
+  .player-switch { margin-bottom: 8px; }
+  .tip { margin-bottom: 8px; line-height: 1.4; }
+  .reset { margin-top: 8px; }
+}
+@media (pointer: coarse) and (orientation: landscape) and (max-height: 540px) {
+  .tabs { padding: 4px 6px; }
+  .settings-actions { padding-right: 56px; }
+}
 </style>

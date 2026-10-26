@@ -30,6 +30,7 @@ import {
 const props = defineProps<{
   inputLocked?: boolean
   gamePaused?: boolean
+  layoutEditing?: boolean
   /** 应用级快捷键修饰键:桌面(Tauri)传 'ctrl',浏览器传 'shift'(默认)。 */
   modifier?: 'ctrl' | 'shift'
   romKey?: string | null
@@ -83,24 +84,26 @@ async function quickSave() {
 }
 
 // 快速新建存档:不覆盖 quick,而是往存档列表追加一条(自动编号 label)。
-async function quickNewSave() {
+async function quickNewSave(): Promise<boolean> {
   if (!runner?.loaded || !props.romKey) {
     showToast('请先载入游戏')
-    return
-  }
-  const state = await runner.saveState()
-  if (!state) {
-    showToast('存档失败')
-    return
+    return false
   }
   try {
+    const state = await runner.saveState()
+    if (!state) {
+      showToast('存档失败')
+      return false
+    }
     const list = await listSaveStates(props.romKey)
     const count = list.filter((r) => r.slot !== QUICK_SLOT).length
     await createSaveState(props.romKey, props.romName ?? props.romKey, `存档 ${count + 1}`, state)
     showToast('已新建存档')
+    return true
   } catch (err) {
     console.error('[NES] 新建存档失败', err)
     showToast(`存档失败: ${describeError(err)}`)
+    return false
   }
 }
 
@@ -575,7 +578,7 @@ defineExpose({
 <template>
   <div
     class="screen-wrap"
-    :class="{ 'without-controls': settings.misc.touchPad === 'never', 'always-controls': settings.misc.touchPad === 'always' }"
+    :class="{ 'without-controls': !layoutEditing && settings.misc.touchPad === 'never', 'always-controls': layoutEditing || settings.misc.touchPad === 'always' }"
     :style="{ background: settings.display.bgColor }"
   >
     <div ref="displayRef" class="display-area">
@@ -591,6 +594,7 @@ defineExpose({
 
     <!-- 触屏虚拟手柄(经典分离式,支持斜向与多点触控) -->
     <TouchControls
+      :editing="layoutEditing"
       :disabled="inputLocked || gamePaused"
       :menu-disabled="inputLocked"
       :can-save="!!romKey && !inputLocked"
@@ -619,27 +623,11 @@ defineExpose({
   min-width: 0;
   overflow: hidden;
 }
-@media (pointer: coarse) and (orientation: landscape) {
-  .screen-wrap:not(.without-controls) {
-    grid-template-columns: clamp(156px, 22vw, 208px) minmax(0, 1fr) clamp(156px, 22vw, 208px);
-    grid-template-rows: 56px minmax(0, 1fr) 56px;
-  }
-  .screen-wrap:not(.without-controls) .display-area {
-    grid-column: 2;
-    grid-row: 2;
-  }
-}
+/* 横屏让画面使用完整区域，触屏按键通过绝对定位叠加。 */
 @media (pointer: coarse) and (orientation: portrait) {
   .screen-wrap:not(.without-controls) {
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
-}
-@media (orientation: landscape) {
-  .screen-wrap.always-controls {
-    grid-template-columns: clamp(156px, 22vw, 208px) minmax(0, 1fr) clamp(156px, 22vw, 208px);
-    grid-template-rows: 56px minmax(0, 1fr) 56px;
-  }
-  .screen-wrap.always-controls .display-area { grid-column: 2; grid-row: 2; }
 }
 @media (orientation: portrait) {
   .screen-wrap.always-controls { grid-template-rows: repeat(2, minmax(0, 1fr)); }

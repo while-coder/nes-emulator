@@ -1,10 +1,90 @@
 <script setup lang="ts">
 /** 固定底座八方向摇杆，保留 NES 数字方向、斜向与多点触控。 */
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { PadButton, settings } from '../emulator/settings'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { PadButton, settings, type TouchLayoutGroup } from '../emulator/settings'
 
-const props = defineProps<{ disabled?: boolean; menuDisabled?: boolean; canSave?: boolean }>()
+const props = defineProps<{ disabled?: boolean; menuDisabled?: boolean; canSave?: boolean; editing?: boolean }>()
 const emit = defineEmits<{ press: [PadButton]; release: [PadButton]; menu: []; quickSave: [] }>()
+
+const controlsRef = ref<HTMLElement | null>(null)
+const orientation = ref<'portrait' | 'landscape'>('landscape')
+const groupSizes = reactive<Record<string, { width: number; height: number }>>({})
+const layout = computed(() => settings.touchLayout[orientation.value])
+let layoutObserver: ResizeObserver | null = null
+let drag: { pointerId: number; group: TouchLayoutGroup; element: HTMLElement; offsetX: number; offsetY: number } | null = null
+
+function measureLayout() {
+  orientation.value = window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'
+  for (const el of controlsRef.value?.querySelectorAll<HTMLElement>('[data-layout-group]') ?? []) {
+    groupSizes[el.dataset.layoutGroup!] = { width: el.offsetWidth, height: el.offsetHeight }
+  }
+}
+function positionStyle(group: TouchLayoutGroup) {
+  const position = layout.value[group]
+  const size = groupSizes[group]
+  if (!position || !size) return undefined
+  return {
+    position: 'absolute' as const,
+    // 竖屏默认的网格区域与 place-self 会改变绝对定位的坐标基准。
+    gridArea: 'auto',
+    placeSelf: 'auto',
+    margin: '0',
+    left: `clamp(${size.width / 2}px, ${position.x * 100}%, calc(100% - ${size.width / 2}px))`,
+    top: `clamp(${size.height / 2}px, ${position.y * 100}%, calc(100% - ${size.height / 2}px))`,
+    right: 'auto', bottom: 'auto', transform: 'translate(-50%, -50%)',
+  }
+}
+function startLayoutDrag(event: PointerEvent) {
+  if (!props.editing || event.button !== 0) return
+  event.preventDefault()
+  event.stopPropagation()
+  if (drag) return
+  const element = (event.target as HTMLElement).closest<HTMLElement>('[data-layout-group]')
+  if (!element) return
+  releaseAll()
+  const rect = element.getBoundingClientRect()
+  drag = { pointerId: event.pointerId, group: element.dataset.layoutGroup as TouchLayoutGroup, element,
+    offsetX: event.clientX - rect.left - rect.width / 2,
+    offsetY: event.clientY - rect.top - rect.height / 2 }
+  element.setPointerCapture(event.pointerId)
+}
+function moveLayoutDrag(event: PointerEvent) {
+  if (!drag || event.pointerId !== drag.pointerId) return
+  event.preventDefault()
+  event.stopPropagation()
+  const bounds = controlsRef.value!.getBoundingClientRect()
+  if (!bounds.width || !bounds.height) return
+  const rect = drag.element.getBoundingClientRect()
+  const x = Math.max(rect.width / 2, Math.min(bounds.width - rect.width / 2, event.clientX - bounds.left - drag.offsetX))
+  const y = Math.max(rect.height / 2, Math.min(bounds.height - rect.height / 2, event.clientY - bounds.top - drag.offsetY))
+  layout.value[drag.group] = { x: x / bounds.width, y: y / bounds.height }
+}
+function endLayoutDrag() {
+  if (!drag) return
+  const previous = drag
+  drag = null
+  releaseCapture(previous.element, previous.pointerId)
+}
+function suppressEditClick(event: MouseEvent) {
+  if (!props.editing) return
+  event.preventDefault()
+  event.stopPropagation()
+}
+watch(() => props.editing, () => { endLayoutDrag(); releaseAll() })
+onMounted(() => {
+  measureLayout()
+  layoutObserver = new ResizeObserver(measureLayout)
+  if (controlsRef.value) {
+    layoutObserver.observe(controlsRef.value)
+    for (const el of controlsRef.value.querySelectorAll('[data-layout-group]')) layoutObserver.observe(el)
+  }
+  window.addEventListener('resize', endLayoutDrag)
+})
+onBeforeUnmount(() => {
+  endLayoutDrag()
+  layoutObserver?.disconnect()
+  window.removeEventListener('resize', endLayoutDrag)
+})
 
 // 触点角度(0=右,逆时针)round 到最近 45° -> 该扇区激活的方向集合。
 const SECTORS: PadButton[][] = [
@@ -99,10 +179,12 @@ function onBtnUp(e: PointerEvent) {
   releaseCapture(pointer.element, e.pointerId)
 }
 function onPointerEnd(e: PointerEvent) {
+  if (drag?.pointerId === e.pointerId) endLayoutDrag()
   onDpadUp(e)
   onBtnUp(e)
 }
 function releaseAll() {
+  endLayoutDrag()
   finishDirection()
   const pointers = Array.from(buttonPointers.entries())
   buttonPointers.clear()
@@ -131,11 +213,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="touch-controls" :class="settings.misc.touchPad">
+  <div ref="controlsRef" class="touch-controls" :class="editing ? 'always editing' : settings.misc.touchPad"
+    @pointerdown.capture="startLayoutDrag" @pointermove.capture="moveLayoutDrag"
+    @lostpointercapture="endLayoutDrag" @click.capture="suppressEditClick">
     <!-- 左：固定底座与可回中的摇杆 -->
     <div
       ref="dpadRef"
       class="dpad"
+      data-layout-group="dpad"
+      :style="positionStyle('dpad')"
       :class="{ active: activeDirs.length > 0 }"
       :aria-disabled="disabled"
       role="group"
@@ -151,11 +237,16 @@ onBeforeUnmount(() => {
       <span class="stick-knob" aria-hidden="true" :style="{ transform: `translate(${stickOffset.x}px, ${stickOffset.y}px)` }" />
     </div>
 
-    <!-- 中:菜单 / SELECT / START / 快存 -->
+    <!-- 横屏分列于摇杆和 A/B 上方，竖屏保持一行。 -->
     <div class="fn">
-      <button class="fkey system-key" :disabled="menuDisabled" aria-label="打开设置菜单" @click="emit('menu')">菜单</button>
+      <div class="fn-group fn-left" aria-label="菜单和快存" data-layout-group="functionsLeft" :style="positionStyle('functionsLeft')">
+      <button class="fkey system-key" :disabled="!editing && menuDisabled" aria-label="打开设置菜单" @click="emit('menu')">菜单</button>
+      <button class="fkey system-key" :disabled="!editing && !canSave" aria-label="快速存档" @click="emit('quickSave')">快存</button>
+
+      </div>
+      <div class="fn-group fn-right" aria-label="SELECT 和 START" data-layout-group="functionsRight" :style="positionStyle('functionsRight')">
       <button
-        :disabled="disabled"
+        :disabled="!editing && disabled"
         class="fkey"
         @pointerdown="onBtnDown($event, PadButton.Select)"
         @pointerup="onBtnUp"
@@ -166,7 +257,7 @@ onBeforeUnmount(() => {
         SELECT
       </button>
       <button
-        :disabled="disabled"
+        :disabled="!editing && disabled"
         class="fkey"
         @pointerdown="onBtnDown($event, PadButton.Start)"
         @pointerup="onBtnUp"
@@ -176,14 +267,15 @@ onBeforeUnmount(() => {
       >
         START
       </button>
-      <button class="fkey system-key" :disabled="!canSave" aria-label="快速存档" @click="emit('quickSave')">快存</button>
+
+      </div>
     </div>
 
     <!-- 右：A/B 平排，每列上方为对应的连发键 -->
-    <div class="actions">
+    <div class="actions" data-layout-group="actions" :style="positionStyle('actions')">
       <div class="col col-b">
         <button
-          :disabled="disabled"
+          :disabled="!editing && disabled"
           class="akey turbo"
           @pointerdown="onBtnDown($event, PadButton.TurboB)"
           @pointerup="onBtnUp"
@@ -194,7 +286,7 @@ onBeforeUnmount(() => {
           连B
         </button>
         <button
-          :disabled="disabled"
+          :disabled="!editing && disabled"
           class="akey ab b"
           @pointerdown="onBtnDown($event, PadButton.B)"
           @pointerup="onBtnUp"
@@ -207,7 +299,7 @@ onBeforeUnmount(() => {
       </div>
       <div class="col col-a">
         <button
-          :disabled="disabled"
+          :disabled="!editing && disabled"
           class="akey turbo"
           @pointerdown="onBtnDown($event, PadButton.TurboA)"
           @pointerup="onBtnUp"
@@ -218,7 +310,7 @@ onBeforeUnmount(() => {
           连A
         </button>
         <button
-          :disabled="disabled"
+          :disabled="!editing && disabled"
           class="akey ab a"
           @pointerdown="onBtnDown($event, PadButton.A)"
           @pointerup="onBtnUp"
@@ -232,9 +324,9 @@ onBeforeUnmount(() => {
     </div>
   </div>
   <button
-    v-if="settings.misc.touchPad === 'never'"
+    v-if="!editing && settings.misc.touchPad === 'never'"
     class="fkey system-key menu-entry"
-    :disabled="menuDisabled"
+    :disabled="!editing && menuDisabled"
     aria-label="打开设置菜单"
     @click="emit('menu')"
   >
@@ -280,6 +372,37 @@ onBeforeUnmount(() => {
   left: 50%;
   transform: translateX(-50%);
 }
+.fn-group { display: flex; gap: 8px; width: clamp(112px, calc(50vw - 32px), 176px); }
+.fn-group .fkey { flex: 1; min-width: 0; width: 0; }
+.touch-controls.editing { pointer-events: auto; }
+.editing [data-layout-group] { outline: 2px dashed #80b8ff; outline-offset: 4px; cursor: grab; touch-action: none; pointer-events: auto; }
+.editing [data-layout-group]:active { cursor: grabbing; }
+.editing .fn-group button { pointer-events: none; }
+@media (orientation: landscape) {
+  .dpad,
+  .actions {
+    top: auto;
+    bottom: 56px;
+    transform: none;
+  }
+  .fn { position: static; inset: auto; transform: none; }
+  .fn-group {
+    position: absolute;
+    display: flex;
+    gap: 8px;
+  }
+  .fn-left {
+    left: 8px;
+    bottom: calc(56px + var(--pad-size) + 32px);
+    width: var(--pad-size);
+  }
+  .fn-right {
+    right: 8px;
+    bottom: calc(56px + var(--action-size) * 2 + clamp(8px, 2.2vw, 12px) + 32px);
+    width: calc(var(--action-size) * 2 + clamp(8px, 2.5vw, 16px));
+  }
+  .fn-group .fkey { flex: 1; min-width: 0; width: 0; }
+}
 @media (pointer: coarse) {
   .menu-entry {
     display: block;
@@ -296,7 +419,8 @@ onBeforeUnmount(() => {
     position: relative;
     inset: auto;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    grid-template-rows: 44px max-content;
+    /* 拖动后按键脱离文档流，仍保留原来的第二行高度。 */
+    grid-template-rows: 44px max(var(--pad-size), calc(var(--action-size) * 2 + clamp(8px, 2.2vw, 12px)));
     align-content: center;
     gap: 16px clamp(16px, 5vw, 24px);
     width: 100%;
@@ -333,6 +457,8 @@ onBeforeUnmount(() => {
     transform: none;
     justify-content: space-around;
   }
+  .fn-left { margin-right: auto; }
+  .fn-right { margin-left: auto; }
 }
 @media (pointer: coarse) and (orientation: portrait) {
   .touch-controls:not(.never) { display: grid; }

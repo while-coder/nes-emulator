@@ -23,14 +23,44 @@
   max-height: calc(100dvh - 32px);
 }
 @media (pointer: coarse) {
-  :root .s-button, :root .s-input, :root .s-select, :root .s-switch, :root .s-icon-close, :root .remote-select {
-    min-height: 44px;
+  :root {
+    --player-control-height: 40px;
+    --player-control-gap: 8px;
+    --player-card-padding: 10px;
+    --player-tools-padding: 6px;
   }
-  .s-icon-close {
+  :root .player-modal :is(.s-button, .s-input, .s-select, .s-switch, .remote-select, select, .rename-input),
+  :root .rs-option {
+    height: var(--player-control-height);
+    min-height: var(--player-control-height);
+    padding-block: 4px;
+    font-size: 14px;
+    line-height: 1.25;
+  }
+  :root .player-modal :is(input[type='range'], input[type='color'], .check) {
+    height: var(--player-control-height);
+    min-height: var(--player-control-height);
+  }
+  :root .player-modal .icon-btn {
+    min-width: var(--player-control-height);
+    width: var(--player-control-height);
+  }
+  :root .s-icon-close {
+    height: 44px;
+    min-height: 44px;
     min-width: 44px;
   }
+  .player-modal .s-modal-header { padding: 4px 12px; }
   .s-modal-overlay {
     padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  :root {
+    --player-control-height: 36px;
+    --player-control-gap: 6px;
+    --player-card-padding: 8px;
+    --player-tools-padding: 4px;
   }
 }
 @media (prefers-reduced-motion: reduce) {

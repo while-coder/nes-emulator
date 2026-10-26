@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
-import { computed, onBeforeUnmount, ref, watch, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import {
   isTauri,
   pickRomFile,
   setLastRomName,
 } from '../emulator/platform'
+import { settings } from '../emulator/settings'
 import { sha256Hex } from '../store/romDownloader'
 import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 import { useFullscreen } from '../composables/useFullscreen'
@@ -13,7 +14,6 @@ import NesScreen from './NesScreen.vue'
 import SettingsModal from './SettingsModal.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
 import PlayerFooter from './PlayerFooter.vue'
-import ToolbarMenu from './ToolbarMenu.vue'
 import type { SaveState } from '../emulator/runner'
 
 type ToolbarMode = 'app' | 'web'
@@ -57,6 +57,25 @@ const audioOn = ref(true)
 const loading = ref(false)
 const paused = ref(false)
 const settingsOpen = ref(false)
+const layoutEditing = ref(false)
+function editTouchLayout() {
+  layoutEditing.value = true
+  settingsOpen.value = false
+}
+function finishTouchLayout() {
+  settingsOpen.value = true
+  layoutEditing.value = false
+}
+function resetTouchLayout() {
+  const orientation = window.matchMedia('(orientation: portrait)').matches ? 'portrait' : 'landscape'
+  settings.touchLayout[orientation] = {}
+}
+function onLayoutKey(event: KeyboardEvent) {
+  if (!layoutEditing.value || event.code !== 'Escape') return
+  event.preventDefault()
+  finishTouchLayout()
+}
+onMounted(() => window.addEventListener('keydown', onLayoutKey))
 const settingsTab = ref<'library' | 'saves' | 'keys' | 'display' | 'audio' | 'misc'>('library')
 function openSettings(tab: typeof settingsTab.value) {
   settingsTab.value = tab
@@ -68,7 +87,7 @@ let exitArmedAt = 0
 let exitHintTimer: ReturnType<typeof setTimeout> | null = null
 
 const inputLocked = computed(
-  () => settingsOpen.value || helpOpen.value,
+  () => settingsOpen.value || helpOpen.value || layoutEditing.value,
 )
 
 const toolbarRef = ref<HTMLElement | null>(null)
@@ -122,17 +141,26 @@ async function loadRomBytes(name: string, bytes: Uint8Array, key: string) {
   }
 }
 
-function saveState() {
-  screen.value?.quickSave()
-}
-
-async function loadState() {
-  await screen.value?.quickLoad()
-  syncPlayback()
-}
-
-function newSave() {
-  screen.value?.quickNewSave()
+const settingsModal = ref<InstanceType<typeof SettingsModal> | null>(null)
+const creatingSave = ref(false)
+const saveMessage = ref('')
+watch(settingsOpen, (open) => { if (open) saveMessage.value = '' })
+async function newSave() {
+  if (creatingSave.value) return
+  creatingSave.value = true
+  saveMessage.value = ''
+  try {
+    const saved = await screen.value?.quickNewSave()
+    if (saved) {
+      await settingsModal.value?.refreshSaves()
+      saveMessage.value = '已新建存档'
+    } else {
+      saveMessage.value = '新建失败，请重试'
+    }
+  } finally {
+    syncPlayback()
+    creatingSave.value = false
+  }
 }
 
 async function onLoadSave(payload: {
@@ -187,6 +215,10 @@ function onSystemAction(action: string) {
 
 const EXIT_CONFIRM_MS = 2000
 function handleBack(): BackResult {
+  if (layoutEditing.value) {
+    finishTouchLayout()
+    return 'handled'
+  }
   if (helpOpen.value) {
     helpOpen.value = false
     return 'handled'
@@ -230,6 +262,7 @@ defineExpose({
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onLayoutKey)
   if (exitHintTimer) clearTimeout(exitHintTimer)
 })
 </script>
@@ -241,42 +274,31 @@ onBeforeUnmount(() => {
     :class="shellClasses"
   >
     <header ref="toolbarRef" class="desktop-toolbar" aria-label="游戏功能区">
-      <h1>{{ title }}</h1>
-      <SButton :disabled="loading" @click="openRom">{{ loading ? openLoadingLabel : '打开 ROM' }}</SButton>
-      <SButton @click="openSettings('library')">{{ libraryLabel }}</SButton>
-      <ToolbarMenu label="存档">
-        <SButton class="menu-item" :disabled="!romName || loading" @click="saveState">快速存档 <kbd>F8</kbd></SButton>
-        <SButton class="menu-item" :disabled="!romName || loading" @click="loadState">快速读档</SButton>
-        <SButton class="menu-item" :disabled="!romName || loading" @click="newSave">新建存档</SButton>
-        <SButton class="menu-item" @click="openSettings('saves')">存档列表</SButton>
-      </ToolbarMenu>
-      <SButton :disabled="!romName || loading" @click="togglePause">{{ paused ? '继续' : '暂停' }}</SButton>
-      <SButton :disabled="!romName || loading" @click="reset">复位</SButton>
-      <SButton :disabled="!romName || loading" @click="stopRom">中止</SButton>
-      <SButton @click="toggleAudio">{{ audioOn ? '静音' : '开启声音' }}</SButton>
+      <SButton @click="openSettings('library')">ROM 库</SButton>
       <SButton @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</SButton>
       <SButton title="打开设置 (Esc)" @click="settingsOpen = true">菜单</SButton>
     </header>
     <SettingsModal
+      ref="settingsModal"
       v-model:open="settingsOpen"
       v-model:tab="settingsTab"
       :current-rom-key="romKey"
       @load-rom="(p) => loadRomBytes(p.name, p.bytes, p.key)"
       @load-save="onLoadSave"
+      @edit-touch-layout="editTouchLayout"
     >
       <template #actions="{ tab }">
         <template v-if="tab === 'library'">
           <SButton :disabled="loading" @click="openRom">{{ loading ? openLoadingLabel : '打开本地 ROM' }}</SButton>
         </template>
         <template v-else-if="tab === 'saves'">
-          <SButton :disabled="!romName || loading" @click="saveState">快速存档 · F8</SButton>
-          <SButton :disabled="!romName || loading" @click="loadState">快速读档</SButton>
-          <SButton :disabled="!romName || loading" @click="newSave">新建存档</SButton>
+          <SButton :disabled="!romName || loading || creatingSave" @click="newSave">{{ creatingSave ? '保存中…' : '新建存档' }}</SButton>
+          <span v-if="saveMessage" role="status">{{ saveMessage }}</span>
         </template>
         <template v-else-if="tab === 'misc'">
           <SButton :disabled="!romName || loading" @click="reset">复位游戏</SButton>
           <SButton :disabled="!romName || loading" @click="stopRom">中止游戏</SButton>
-          <SButton @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</SButton>
+          <SButton class="desktop-only" @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</SButton>
         </template>
         <SButton v-else-if="tab === 'audio'" @click="toggleAudio">{{ audioOn ? '静音' : '开启声音' }}</SButton>
       </template>
@@ -284,16 +306,22 @@ onBeforeUnmount(() => {
     <ShortcutsPanel v-model:open="helpOpen" :modifier="modKey" />
 
     <main class="stage">
+      <div v-if="layoutEditing" class="layout-edit-tools">
+        <span>拖动虚线区域调整位置 · 自动保存</span>
+        <SButton @click="resetTouchLayout">重置当前方向</SButton>
+        <SButton @click="finishTouchLayout">完成</SButton>
+      </div>
       <NesScreen
         ref="screen"
         :input-locked="inputLocked"
+        :layout-editing="layoutEditing"
         :game-paused="paused || loading"
         :modifier="modKey"
         :rom-key="romKey"
         :rom-name="romName"
         @system-action="onSystemAction"
       />
-      <div v-if="!romName" class="empty-state">
+      <div v-if="!romName && !layoutEditing" class="empty-state">
         <p>通过菜单选择游戏或本地 ROM 开始游玩</p>
         <small>Esc 打开设置 · F8 快速存档</small>
       </div>
@@ -382,13 +410,6 @@ textarea,
   background: #242424;
   border-bottom: 1px solid #343434;
 }
-.desktop-toolbar h1 {
-  flex: 1 0 auto;
-  margin: 0 8px 0 0;
-  font-size: 16px;
-  font-weight: 600;
-  white-space: nowrap;
-}
 .desktop-toolbar > :deep(.s-button) {
   flex-shrink: 0;
   white-space: nowrap;
@@ -403,6 +424,25 @@ textarea,
   padding: 16px;
   position: relative;
 }
+.layout-edit-tools {
+  position: absolute;
+  z-index: 10;
+  top: max(8px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  padding: 8px;
+  border-radius: 8px;
+  background: #202328ee;
+  font-size: 13px;
+}
+.layout-edit-tools :deep(.s-button) { min-height: 44px; }
 .empty-state {
   position: absolute;
   display: flex;
@@ -439,11 +479,17 @@ textarea,
   opacity: 0;
 }
 @media (pointer: coarse) {
+  .desktop-only { display: none; }
   .desktop-toolbar { display: none; }
   .stage {
     padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   }
   .empty-state { top: 8px; gap: 8px; padding: 8px; font-size: 13px; }
   .empty-state small { display: none; }
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .stage {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
 }
 </style>
