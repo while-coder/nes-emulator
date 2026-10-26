@@ -6,7 +6,7 @@
  * 修改后由 watch 自动保存。
  *
  * 多人:输入按玩家分组(`settings.players`,索引 0=玩家1、1=玩家2),每个玩家
- * 各有键盘映射、手柄映射与绑定的实体手柄下标。逻辑按钮以 `PadButton` 表示
+ * 各有独立的键盘映射、手柄映射与自动分配的实体手柄下标。逻辑按钮以 `PadButton` 表示
  * (与玩家无关),运行时再经 `runnerButton(player, pad)` 路由到引擎对应手柄。
  */
 import { reactive, watch } from 'vue'
@@ -31,11 +31,13 @@ export enum PadButton {
   Select = 9,
 }
 
-/** 单个玩家的输入配置。键盘按玩家各一套;手柄映射不在此(按型号共享,见 gamepadProfiles)。 */
+/** 单个玩家的输入配置。键盘与手柄映射均按玩家独立保存。 */
 export interface PlayerConfig {
   /** PadButton -> KeyboardEvent.code。 */
   keymap: Record<number, string>
-  /** 绑定的实体手柄下标(navigator.getGamepads 索引);null=未绑定。 */
+  /** PadButton -> 手柄输入标识。 */
+  padmap: Padmap
+  /** 当前会话自动分配的实体手柄下标;不持久化。 */
   gamepadIndex: number | null
 }
 
@@ -48,12 +50,6 @@ export type Padmap = Record<number, string>
 export interface Settings {
   /** 玩家输入配置,索引 0=玩家1、1=玩家2。 */
   players: PlayerConfig[]
-  /**
-   * 手柄映射按型号(gamepad.id)建档,全局共享:同型号手柄只需配一次,任意玩家
-   * 选用即复用;不同型号各自建档,自然解决按钮编号不一致。未建档的型号运行时
-   * 回退到标准布局(defaultPadmap),即插即用。
-   */
-  gamepadProfiles: Record<string, Padmap>
   display: {
     /** true=双线性平滑,false=像素化(默认)。 */
     smoothing: boolean
@@ -135,7 +131,7 @@ export const TURBO_HZ_OPTIONS = [8, 16, 24, 30]
 export const GAMEPAD_AXIS_THRESHOLD = 0.5
 
 // 标准手柄(W3C Standard Gamepad)默认映射:方向用 D-pad(b12~b15),A/B 取 Nintendo
-// 手感(A 在右=b1,B 在下=b0),连发绑到面键 X/Y。作为未建档型号的运行时回退与新建档案的初值。
+// 手感(A 在右=b1,B 在下=b0),连发绑到面键 X/Y。每个玩家各自保存一份默认值。
 export function defaultPadmap(): Padmap {
   return {
     [PadButton.Up]: 'b12',
@@ -168,6 +164,7 @@ function defaultSettings(): Settings {
           [PadButton.Start]: 'Enter',
           [PadButton.Select]: 'Space',
         },
+        padmap: defaultPadmap(),
         gamepadIndex: null,
       },
       // 玩家2:键盘默认方向键(方向)+ 小键盘(A/B/连发/开始)。
@@ -184,10 +181,10 @@ function defaultSettings(): Settings {
           [PadButton.Start]: 'NumpadEnter',
           [PadButton.Select]: 'Numpad0',
         },
+        padmap: defaultPadmap(),
         gamepadIndex: null,
       },
     ],
-    gamepadProfiles: {},
     display: {
       smoothing: false,
       aspect: '1:1',
@@ -215,7 +212,8 @@ function mergePlayer(base: PlayerConfig, saved: unknown): PlayerConfig {
   const s = saved as Partial<PlayerConfig>
   return {
     keymap: { ...base.keymap, ...(s.keymap ?? {}) },
-    gamepadIndex: typeof s.gamepadIndex === 'number' ? s.gamepadIndex : base.gamepadIndex,
+    padmap: { ...base.padmap, ...(s.padmap ?? {}) },
+    gamepadIndex: null,
   }
 }
 
@@ -224,11 +222,21 @@ function merge(base: Settings, saved: unknown): Settings {
   if (!saved || typeof saved !== 'object') return base
   const s = saved as Partial<Settings>
   const savedPlayers = Array.isArray(s.players) ? s.players : []
-  const savedProfiles =
-    s.gamepadProfiles && typeof s.gamepadProfiles === 'object' ? s.gamepadProfiles : {}
+  // 旧版按型号共享的档案迁入独立配置;能识别旧设备时优先按旧绑定迁移。
+  const legacy = (saved as { gamepadProfiles?: Record<string, Padmap> }).gamepadProfiles ?? {}
+  const pads = listGamepads()
+  const profiles = Object.values(legacy)
   return {
-    players: base.players.map((p, i) => mergePlayer(p, savedPlayers[i])),
-    gamepadProfiles: { ...savedProfiles },
+    players: base.players.map((p, i) => {
+      const old = savedPlayers[i]
+      const merged = mergePlayer(p, old)
+      if (!old?.padmap) {
+        const id = pads.find((pad) => pad.index === old?.gamepadIndex)?.id
+        const profile = id ? legacy[id] : profiles.length === 1 ? profiles[0] : undefined
+        if (profile) merged.padmap = { ...p.padmap, ...profile }
+      }
+      return merged
+    }),
     display: { ...base.display, ...(s.display ?? {}) },
     audio: { ...base.audio, ...(s.audio ?? {}) },
     misc: { ...base.misc, ...(s.misc ?? {}) },
@@ -251,7 +259,10 @@ watch(
   settings,
   (s) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(s))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        ...s,
+        players: s.players.map(({ keymap, padmap }) => ({ keymap, padmap })),
+      }))
     } catch {
       // 忽略隐私模式等写入失败
     }
@@ -264,47 +275,47 @@ export function resetSettings(): void {
   Object.assign(settings, defaultSettings())
 }
 
-/** 仅恢复按键映射(键盘 + 全部手柄档案)为默认值,保留各玩家的手柄绑定。 */
-export function resetKeymap(): void {
-  const d = defaultSettings()
-  settings.players.forEach((p, i) => {
-    p.keymap = d.players[i].keymap
-  })
-  settings.gamepadProfiles = {}
+/** 恢复指定玩家的键盘与手柄默认配置。 */
+export function resetKeymap(player: number): void {
+  const defaults = defaultSettings().players[player]
+  settings.players[player].keymap = defaults.keymap
+  settings.players[player].padmap = defaults.padmap
 }
 
-/**
- * 取某型号手柄的有效映射:以标准布局为底,再叠加该型号已建档的绑定。
- * 关键:档案中缺失或为空('')的键回退到标准布局,避免旧档案漏录某键(如 select/start)
- * 导致该键永久失灵 —— 历史上按标准布局录制的档案常漏掉 b8/b9。
- */
-export function padmapFor(gamepadId: string | undefined): Padmap {
-  const base = defaultPadmap()
-  const profile = gamepadId ? settings.gamepadProfiles[gamepadId] : undefined
-  if (!profile) return base
-  const merged = { ...base }
-  for (const key of Object.keys(profile)) {
-    const sig = profile[Number(key)]
-    if (sig) merged[Number(key)] = sig // 仅用档案里非空的绑定覆盖默认
-  }
-  return merged
+/** 手柄配置按玩家读取,保留显式解绑的空字符串。 */
+export function padmapFor(player: number): Padmap {
+  return settings.players[player].padmap
 }
 
-/** 确保某型号手柄已有档案(以标准布局为初值),返回该档案;用于设置界面写入前。 */
-export function ensurePadProfile(gamepadId: string): Padmap {
-  if (!settings.gamepadProfiles[gamepadId]) {
-    settings.gamepadProfiles[gamepadId] = defaultPadmap()
-  }
-  return settings.gamepadProfiles[gamepadId]
-}
-
-/** 给某型号手柄绑定一个逻辑按钮的输入标识;同标识若已绑别的按钮则先解绑,避免冲突。 */
-export function setPadBinding(gamepadId: string, pad: PadButton, sig: string): void {
-  const profile = ensurePadProfile(gamepadId)
+/** 同一玩家内,同一手柄输入仅绑定一个逻辑按钮。 */
+export function setPadBinding(player: number, pad: PadButton, sig: string): void {
+  const profile = settings.players[player].padmap
   for (const key of Object.keys(profile)) {
     if (profile[Number(key)] === sig && Number(key) !== pad) profile[Number(key)] = ''
   }
   profile[pad] = sig
+}
+
+// 保留已分配且仍连接的手柄,新识别的手柄依连接/激活顺序填补空位。
+// 浏览器通常在首次按键后才向网页公开手柄,因此也支持按激活顺序分配。
+export function syncGamepadAssignments(): void {
+  const pads = listGamepads()
+  const assigned = new Set<number>()
+  for (const player of settings.players) {
+    const index = player.gamepadIndex
+    if (index !== null && pads.some((pad) => pad.index === index) && !assigned.has(index)) {
+      assigned.add(index)
+    } else {
+      player.gamepadIndex = null
+    }
+  }
+  for (const pad of pads) {
+    if (assigned.has(pad.index)) continue
+    const player = settings.players.find((p) => p.gamepadIndex === null)
+    if (!player) break
+    player.gamepadIndex = pad.index
+    assigned.add(pad.index)
+  }
 }
 
 /** 由 keymap 反推 code -> 按钮 id 查找表,供运行时按键派发。 */
@@ -330,7 +341,7 @@ export function listGamepads(): { index: number; id: string }[] {
   const pads = typeof navigator !== 'undefined' && navigator.getGamepads ? navigator.getGamepads() : []
   const out: { index: number; id: string }[] = []
   for (const pad of pads) {
-    if (pad) out.push({ index: pad.index, id: pad.id })
+    if (pad?.connected) out.push({ index: pad.index, id: pad.id })
   }
   return out
 }
@@ -419,7 +430,7 @@ export function isPadSignalActive(pad: Gamepad, sig: string): boolean {
  * 扫描一个 Gamepad,返回当前正被按下的第一个输入标识(用于设置界面录入)。
  * 仅在该输入相对 baseline 发生变化时才识别,避免把扳机的静止偏置/已按住的键当成新输入。
  */
-export function detectPadSignal(pad: Gamepad, baseline: Gamepad | null): string | null {
+export function detectPadSignal(pad: Gamepad, baseline: Pick<Gamepad, 'buttons' | 'axes'> | null): string | null {
   for (let i = 0; i < pad.buttons.length; i++) {
     const pressed = pad.buttons[i]?.pressed || pad.buttons[i]?.value > 0.5
     const was = baseline?.buttons[i]?.pressed || (baseline?.buttons[i]?.value ?? 0) > 0.5

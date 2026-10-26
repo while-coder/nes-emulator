@@ -3,8 +3,8 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { PadButton, settings } from '../emulator/settings'
 
-const props = defineProps<{ disabled?: boolean }>()
-const emit = defineEmits<{ press: [PadButton]; release: [PadButton] }>()
+const props = defineProps<{ disabled?: boolean; menuDisabled?: boolean; canSave?: boolean }>()
+const emit = defineEmits<{ press: [PadButton]; release: [PadButton]; menu: []; quickSave: [] }>()
 
 // 触点角度(0=右,逆时针)round 到最近 45° -> 该扇区激活的方向集合。
 const SECTORS: PadButton[][] = [
@@ -151,8 +151,9 @@ onBeforeUnmount(() => {
       <span class="stick-knob" aria-hidden="true" :style="{ transform: `translate(${stickOffset.x}px, ${stickOffset.y}px)` }" />
     </div>
 
-    <!-- 中:SELECT / START -->
+    <!-- 中:菜单 / SELECT / START / 快存 -->
     <div class="fn">
+      <button class="fkey system-key" :disabled="menuDisabled" aria-label="打开设置菜单" @click="emit('menu')">菜单</button>
       <button
         :disabled="disabled"
         class="fkey"
@@ -175,6 +176,7 @@ onBeforeUnmount(() => {
       >
         START
       </button>
+      <button class="fkey system-key" :disabled="!canSave" aria-label="快速存档" @click="emit('quickSave')">快存</button>
     </div>
 
     <!-- 右：A/B 平排，每列上方为对应的连发键 -->
@@ -229,6 +231,15 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
+  <button
+    v-if="settings.misc.touchPad === 'never'"
+    class="fkey system-key menu-entry"
+    :disabled="menuDisabled"
+    aria-label="打开设置菜单"
+    @click="emit('menu')"
+  >
+    菜单
+  </button>
 </template>
 
 <style scoped>
@@ -239,40 +250,51 @@ onBeforeUnmount(() => {
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-/* 根据主要输入设备区分移动端；桌面窄窗口也不显示虚拟手柄。 */
+.menu-entry {
+  display: none;
+}
+/* 默认按主要输入设备显示；always 在桌面也显示完整手柄。 */
+.touch-controls {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  --pad-size: clamp(132px, 20vw, 168px);
+  --action-size: clamp(52px, 8vw, 68px);
+}
+.touch-controls.always { display: block; }
+.dpad {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.actions {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.fn {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
 @media (pointer: coarse) {
-  .touch-controls:not(.never) {
+  .menu-entry {
     display: block;
     position: absolute;
-    inset: 0;
-    z-index: 5;
-    --pad-size: clamp(132px, 20vw, 168px);
-    --action-size: clamp(52px, 8vw, 68px);
-  }
-  .dpad {
-    position: absolute;
-    left: 8px;
-    top: 50%;
-    transform: translateY(-50%);
-  }
-  .actions {
-    position: absolute;
+    top: 8px;
     right: 8px;
-    top: 50%;
-    transform: translateY(-50%);
+    z-index: 5;
   }
-  .fn {
-    position: absolute;
-    bottom: 4px;
-    left: 50%;
-    transform: translateX(-50%);
-  }
+  .touch-controls:not(.never) { display: block; }
 }
-@media (pointer: coarse) and (orientation: portrait) {
-  .touch-controls:not(.never) {
+@media (orientation: portrait) {
+  .touch-controls.always { display: grid; }
+  .touch-controls {
     position: relative;
     inset: auto;
-    display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     grid-template-rows: 44px max-content;
     align-content: center;
@@ -311,6 +333,9 @@ onBeforeUnmount(() => {
     transform: none;
     justify-content: space-around;
   }
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  .touch-controls:not(.never) { display: grid; }
 }
 
 /* 摇杆：底座不动，帽沿手指移动，松手立即回中。 */
@@ -358,13 +383,17 @@ onBeforeUnmount(() => {
   pointer-events: auto;
   touch-action: none;
   border: none;
-  width: 80px;
+  width: clamp(52px, 16vw, 80px);
+  flex-shrink: 0;
   height: 44px;
   border-radius: 15px;
   background: rgba(58, 58, 58, 0.85);
   color: #eee;
   font-size: 12px;
 }
+.fkey:disabled { opacity: 0.45; }
+.system-key { background: rgba(47, 107, 216, 0.85); touch-action: manipulation; }
+.fkey:focus-visible { outline: 2px solid #4ea1ff; outline-offset: 2px; }
 .fkey:active {
   background: rgba(90, 90, 90, 0.95);
 }

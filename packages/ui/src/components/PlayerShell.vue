@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
-import { computed, onBeforeUnmount, ref, watchEffect } from 'vue'
+import { computed, onBeforeUnmount, ref, watch, watchEffect } from 'vue'
 import {
   isTauri,
   pickRomFile,
@@ -8,13 +8,12 @@ import {
 } from '../emulator/platform'
 import { sha256Hex } from '../store/romDownloader'
 import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
-import { useAutoHideToolbar } from '../composables/useAutoHideToolbar'
 import { useFullscreen } from '../composables/useFullscreen'
 import NesScreen from './NesScreen.vue'
 import SettingsModal from './SettingsModal.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
-import ToolbarMenu from './ToolbarMenu.vue'
 import PlayerFooter from './PlayerFooter.vue'
+import ToolbarMenu from './ToolbarMenu.vue'
 import type { SaveState } from '../emulator/runner'
 
 type ToolbarMode = 'app' | 'web'
@@ -73,19 +72,21 @@ const inputLocked = computed(
 )
 
 const toolbarRef = ref<HTMLElement | null>(null)
-const toolbarNavActive = computed(
-  () => navEnabled.value && !inputLocked.value && (!romName.value || paused.value),
-)
 useRemoteNav({
   container: toolbarRef,
-  active: toolbarNavActive,
+  active: computed(() => navEnabled.value && !inputLocked.value && (!romName.value || paused.value)),
   autoFocus: true,
   priority: 0,
   onBack: props.enableBackExit ? consumeBack : undefined,
 })
 
-const isPlaying = computed(() => !!romName.value && !paused.value)
-const { visible: toolbarVisible, toggle: toggleToolbar } = useAutoHideToolbar(isPlaying)
+// 弹窗暂停与手动暂停独立，关窗后保留原来的手动暂停状态。
+function syncPlayback() {
+  if (!romName.value) return
+  if (inputLocked.value || paused.value || loading.value) screen.value?.pause()
+  else screen.value?.resume()
+}
+watch([inputLocked, paused, loading, romName], syncPlayback, { flush: 'sync' })
 
 if (typeof document !== 'undefined') {
   watchEffect(() => {
@@ -94,13 +95,10 @@ if (typeof document !== 'undefined') {
 }
 
 const modKey: 'ctrl' | 'shift' = isTauri ? 'ctrl' : 'shift'
-const modLabel = isTauri ? 'Ctrl' : 'Shift'
 const shellClasses = computed(() => ({
   'tv-nav': navEnabled.value,
   'is-fullscreen': isFullscreen.value,
   'is-pseudo-fullscreen': isFullscreen.value && usePseudo.value,
-  'toolbar-app': props.toolbarMode === 'app',
-  'toolbar-web': props.toolbarMode === 'web',
 }))
 
 async function openRom() {
@@ -108,6 +106,7 @@ async function openRom() {
   if (!picked) return
   const key = await sha256Hex(picked.bytes)
   await loadRomBytes(picked.name, picked.bytes, key)
+  settingsOpen.value = false
 }
 
 async function loadRomBytes(name: string, bytes: Uint8Array, key: string) {
@@ -127,8 +126,9 @@ function saveState() {
   screen.value?.quickSave()
 }
 
-function loadState() {
-  screen.value?.quickLoad()
+async function loadState() {
+  await screen.value?.quickLoad()
+  syncPlayback()
 }
 
 function newSave() {
@@ -145,6 +145,7 @@ async function onLoadSave(payload: {
     await loadRomBytes(payload.name, payload.bytes, payload.romKey)
   }
   await screen.value?.applyState(payload.state)
+  syncPlayback()
 }
 
 function reset() {
@@ -153,11 +154,6 @@ function reset() {
 }
 
 function togglePause() {
-  if (paused.value) {
-    screen.value?.resume()
-  } else {
-    screen.value?.pause()
-  }
   paused.value = !paused.value
 }
 
@@ -174,7 +170,9 @@ function toggleAudio() {
 }
 
 function onSystemAction(action: string) {
-  if (action === 'toggle-pause') {
+  if (action === 'open-settings') {
+    settingsOpen.value = true
+  } else if (action === 'toggle-pause') {
     if (romName.value) togglePause()
   } else if (action === 'open-library') {
     openSettings('library')
@@ -242,158 +240,63 @@ onBeforeUnmount(() => {
     class="app"
     :class="shellClasses"
   >
-    <div v-if="isPlaying" class="toolbar-hotzone" @pointerup="toggleToolbar" />
-    <SButton
-      v-if="isPlaying && !toolbarVisible"
-      class="toolbar-handle"
-      title="显示菜单栏"
-      @pointerup="toggleToolbar"
-    >
-      ☰
-    </SButton>
-    <header
-      ref="toolbarRef"
-      class="toolbar"
-      :class="{ floating: isPlaying, hidden: isPlaying && !toolbarVisible }"
-    >
-      <h1 class="title">{{ title }}</h1>
-      <div class="spacer" />
-
-      <template v-if="toolbarMode === 'web'">
-        <SButton class="btn primary" :disabled="loading" @click="openRom">
-          {{ loading ? openLoadingLabel : '打开 ROM' }}
-        </SButton>
-        <SButton
-          class="btn icon"
-          :disabled="!romName"
-          :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
-          @click="togglePause"
-        >
-          {{ paused ? '▶' : '⏸' }}
-        </SButton>
-        <SButton
-          class="btn icon"
-          @click="toggleFullscreen"
-          :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
-        >
-          {{ isFullscreen ? '⛗' : '⛶' }}
-        </SButton>
-        <div class="secondary">
-          <SButton class="btn" @click="openSettings('library')">
-            {{ libraryLabel }} <kbd>{{ modLabel }}+G</kbd>
-          </SButton>
-          <ToolbarMenu label="存档">
-            <SButton class="menu-item" :disabled="!romName" @click="saveState">
-              快速存档 <kbd>{{ modLabel }}+S</kbd>
-            </SButton>
-            <SButton class="menu-item" :disabled="!romName" @click="loadState">
-              快速读档 <kbd>{{ modLabel }}+L</kbd>
-            </SButton>
-            <SButton class="menu-item" :disabled="!romName" @click="newSave">
-              新建存档 <kbd>{{ modLabel }}+N</kbd>
-            </SButton>
-            <SButton class="menu-item" @click="openSettings('saves')">
-              存档列表 <kbd>{{ modLabel }}+A</kbd>
-            </SButton>
-          </ToolbarMenu>
-          <span class="divider" />
-          <SButton class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</SButton>
-          <SButton class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</SButton>
-          <span class="divider" />
-          <SButton class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
-            {{ audioOn ? '🔊' : '🔇' }}
-          </SButton>
-          <SButton class="btn icon" title="设置" @click="settingsOpen = true">⚙</SButton>
-        </div>
-        <ToolbarMenu label="☰" class="more-menu">
-          <SButton class="menu-item" @click="openSettings('library')">
-            {{ libraryLabel }} <kbd>{{ modLabel }}+G</kbd>
-          </SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="saveState">
-            快速存档 <kbd>{{ modLabel }}+S</kbd>
-          </SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="loadState">
-            快速读档 <kbd>{{ modLabel }}+L</kbd>
-          </SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="newSave">
-            新建存档 <kbd>{{ modLabel }}+N</kbd>
-          </SButton>
-          <SButton class="menu-item" @click="openSettings('saves')">
-            存档列表 <kbd>{{ modLabel }}+A</kbd>
-          </SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="reset">复位</SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="stopRom">中止</SButton>
-          <SButton class="menu-item" @click="toggleAudio">
-            {{ audioOn ? '音频:开' : '音频:关' }}
-          </SButton>
-          <SButton class="menu-item" @click="settingsOpen = true">设置</SButton>
-        </ToolbarMenu>
-      </template>
-
-      <template v-else>
-        <SButton class="btn" :disabled="loading" @click="openRom">
-          {{ loading ? openLoadingLabel : '打开 ROM' }}
-        </SButton>
-        <SButton class="btn" @click="openSettings('library')">
-          {{ libraryLabel }} <kbd>{{ modLabel }}+G</kbd>
-        </SButton>
-        <ToolbarMenu label="存档">
-          <SButton class="menu-item" :disabled="!romName" @click="saveState">
-            快速存档 <kbd>{{ modLabel }}+S</kbd>
-          </SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="loadState">
-            快速读档 <kbd>{{ modLabel }}+L</kbd>
-          </SButton>
-          <SButton class="menu-item" :disabled="!romName" @click="newSave">
-            新建存档 <kbd>{{ modLabel }}+N</kbd>
-          </SButton>
-          <SButton class="menu-item" @click="openSettings('saves')">
-            存档列表 <kbd>{{ modLabel }}+A</kbd>
-          </SButton>
-        </ToolbarMenu>
-        <SButton
-          class="btn icon"
-          :disabled="!romName"
-          :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
-          @click="togglePause"
-        >
-          {{ paused ? '▶' : '⏸' }}
-        </SButton>
-        <SButton class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</SButton>
-        <SButton class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</SButton>
-        <SButton
-          class="btn icon"
-          @click="toggleFullscreen"
-          :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
-        >
-          {{ isFullscreen ? '⛗' : '⛶' }}
-        </SButton>
-        <SButton class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
-          {{ audioOn ? '🔊' : '🔇' }}
-        </SButton>
-        <SButton class="btn icon" title="设置" @click="settingsOpen = true">⚙</SButton>
-      </template>
+    <header ref="toolbarRef" class="desktop-toolbar" aria-label="游戏功能区">
+      <h1>{{ title }}</h1>
+      <SButton :disabled="loading" @click="openRom">{{ loading ? openLoadingLabel : '打开 ROM' }}</SButton>
+      <SButton @click="openSettings('library')">{{ libraryLabel }}</SButton>
+      <ToolbarMenu label="存档">
+        <SButton class="menu-item" :disabled="!romName || loading" @click="saveState">快速存档 <kbd>F8</kbd></SButton>
+        <SButton class="menu-item" :disabled="!romName || loading" @click="loadState">快速读档</SButton>
+        <SButton class="menu-item" :disabled="!romName || loading" @click="newSave">新建存档</SButton>
+        <SButton class="menu-item" @click="openSettings('saves')">存档列表</SButton>
+      </ToolbarMenu>
+      <SButton :disabled="!romName || loading" @click="togglePause">{{ paused ? '继续' : '暂停' }}</SButton>
+      <SButton :disabled="!romName || loading" @click="reset">复位</SButton>
+      <SButton :disabled="!romName || loading" @click="stopRom">中止</SButton>
+      <SButton @click="toggleAudio">{{ audioOn ? '静音' : '开启声音' }}</SButton>
+      <SButton @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</SButton>
+      <SButton title="打开设置 (Esc)" @click="settingsOpen = true">菜单</SButton>
     </header>
-
     <SettingsModal
       v-model:open="settingsOpen"
       v-model:tab="settingsTab"
       :current-rom-key="romKey"
       @load-rom="(p) => loadRomBytes(p.name, p.bytes, p.key)"
       @load-save="onLoadSave"
-    />
+    >
+      <template #actions="{ tab }">
+        <template v-if="tab === 'library'">
+          <SButton :disabled="loading" @click="openRom">{{ loading ? openLoadingLabel : '打开本地 ROM' }}</SButton>
+        </template>
+        <template v-else-if="tab === 'saves'">
+          <SButton :disabled="!romName || loading" @click="saveState">快速存档 · F8</SButton>
+          <SButton :disabled="!romName || loading" @click="loadState">快速读档</SButton>
+          <SButton :disabled="!romName || loading" @click="newSave">新建存档</SButton>
+        </template>
+        <template v-else-if="tab === 'misc'">
+          <SButton :disabled="!romName || loading" @click="reset">复位游戏</SButton>
+          <SButton :disabled="!romName || loading" @click="stopRom">中止游戏</SButton>
+          <SButton @click="toggleFullscreen">{{ isFullscreen ? '退出全屏' : '全屏' }}</SButton>
+        </template>
+        <SButton v-else-if="tab === 'audio'" @click="toggleAudio">{{ audioOn ? '静音' : '开启声音' }}</SButton>
+      </template>
+    </SettingsModal>
     <ShortcutsPanel v-model:open="helpOpen" :modifier="modKey" />
 
     <main class="stage">
       <NesScreen
         ref="screen"
-        :input-locked="inputLocked || paused"
+        :input-locked="inputLocked"
+        :game-paused="paused || loading"
         :modifier="modKey"
         :rom-key="romKey"
         :rom-name="romName"
         @system-action="onSystemAction"
       />
-      <p v-if="!romName" class="hint">{{ hint }}</p>
+      <div v-if="!romName" class="empty-state">
+        <p>通过菜单选择游戏或本地 ROM 开始游玩</p>
+        <small>Esc 打开设置 · F8 快速存档</small>
+      </div>
     </main>
 
     <Transition name="toast">
@@ -469,138 +372,26 @@ textarea,
 .app.is-fullscreen :deep(.frame) {
   border-radius: 0;
 }
-.toolbar {
-  flex-shrink: 0;
+.desktop-toolbar {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   padding: 10px 16px;
+  overflow-x: auto;
   background: #242424;
   border-bottom: 1px solid #343434;
-  overflow-x: auto;
 }
-.toolbar.floating {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 500;
-  background: rgba(36, 36, 36, 0.94);
-  transition: transform 0.25s ease;
-}
-.toolbar.floating.hidden {
-  transform: translateY(-100%);
-}
-.toolbar-hotzone {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 52px;
-  z-index: 400;
-  cursor: pointer;
-  touch-action: manipulation;
-}
-.toolbar-web .toolbar-hotzone {
-  height: calc(52px + max(0px, env(safe-area-inset-top)));
-}
-.toolbar-handle {
-  position: absolute;
-  top: max(0px, env(safe-area-inset-top));
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 550;
-  padding: 4px 26px 7px;
-  font-size: 17px;
-  line-height: 1.2;
-  color: #fff;
-  background: rgba(0, 0, 0, 0.62);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-top: none;
-  border-bottom-left-radius: 14px;
-  border-bottom-right-radius: 14px;
-  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
-  cursor: pointer;
-}
-.toolbar-web .toolbar-handle {
-  top: calc(max(0px, env(safe-area-inset-top)) + 10px);
-  touch-action: manipulation;
-  padding: 6px 26px 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.16);
-  border-top-left-radius: 14px;
-  border-top-right-radius: 14px;
-}
-.title {
+.desktop-toolbar h1 {
+  flex: 1 0 auto;
+  margin: 0 8px 0 0;
   font-size: 16px;
-  margin: 0;
   font-weight: 600;
   white-space: nowrap;
 }
-.spacer {
-  flex: 1;
-}
-.btn {
-  border: none;
-  background: #3b3b3b;
-  color: #eee;
-  padding: 6px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
+.desktop-toolbar > :deep(.s-button) {
+  flex-shrink: 0;
   white-space: nowrap;
-  flex-shrink: 0;
-}
-.btn:hover:not(:disabled) {
-  background: #4b4b4b;
-}
-.btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.btn.primary {
-  background: #2f6bd8;
-  font-weight: 600;
-}
-.btn.primary:hover:not(:disabled) {
-  background: #3d7ce8;
-}
-.btn kbd {
-  margin-left: 4px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: #2a2a2a;
-  border: 1px solid #555;
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-  font-size: 11px;
-  color: #bbb;
-}
-.btn.icon {
-  padding: 6px 9px;
-  font-size: 15px;
-  line-height: 1;
-}
-.secondary {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.divider {
-  width: 1px;
-  align-self: stretch;
-  margin: 2px 2px;
-  background: #3d3d3d;
-  flex-shrink: 0;
-}
-.more-menu {
-  display: none;
-}
-@media (max-width: 720px), (pointer: coarse) {
-  .secondary {
-    display: none;
-  }
-  .more-menu {
-    display: block;
-  }
 }
 .stage {
   flex: 1;
@@ -612,14 +403,18 @@ textarea,
   padding: 16px;
   position: relative;
 }
-.hint {
-  pointer-events: none;
+.empty-state {
   position: absolute;
-  bottom: 12px;
-  color: #888;
-  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px;
   text-align: center;
+  color: #ccc;
 }
+.empty-state p { margin: 0; }
+.empty-state small { color: #aaa; }
 .exit-hint {
   position: fixed;
   left: 50%;
@@ -643,52 +438,12 @@ textarea,
 .toast-leave-to {
   opacity: 0;
 }
-@media (pointer: fine) {
-  .toolbar {
-    position: absolute;
-    inset: 0 0 auto;
-    z-index: 500;
-  }
-  .stage {
-    padding: 68px 16px;
-  }
-  :deep(.footer) {
-    position: absolute;
-    inset: auto 0 0;
-  }
-}
 @media (pointer: coarse) {
+  .desktop-toolbar { display: none; }
   .stage {
     padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
   }
-  .hint {
-    top: 16px;
-    bottom: auto;
-    margin: 0;
-  }
-}
-@media (orientation: landscape) and (max-height: 540px) {
-  .toolbar-web .toolbar {
-    padding: 4px 8px;
-    gap: 4px;
-  }
-  .toolbar-web .title {
-    display: none;
-  }
-  .toolbar-web .btn {
-    padding: 4px 10px;
-    font-size: 13px;
-  }
-  .toolbar-web .btn.icon {
-    padding: 4px 7px;
-    font-size: 14px;
-  }
-  .toolbar-web .btn kbd {
-    display: none;
-  }
-  .toolbar-web .hint {
-    bottom: 4px;
-    font-size: 12px;
-  }
+  .empty-state { top: 8px; gap: 8px; padding: 8px; font-size: 13px; }
+  .empty-state small { display: none; }
 }
 </style>

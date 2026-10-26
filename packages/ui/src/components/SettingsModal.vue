@@ -17,6 +17,7 @@ import {
   resetSettings,
   setPadBinding,
   settings,
+  syncGamepadAssignments,
   type Aspect,
   type TouchPadMode,
 } from '../emulator/settings'
@@ -49,31 +50,21 @@ watch(tab, () => {
 const player = ref(0)
 const currentPlayer = computed(() => settings.players[player.value])
 
-// 已连接手柄列表(随插拔刷新),供玩家选择绑定。
+// 已连接手柄列表(随插拔刷新),显示自动分配结果。
 const gamepads = ref<{ index: number; id: string }[]>([])
 function refreshGamepads() {
+  syncGamepadAssignments()
   gamepads.value = listGamepads()
 }
 
-// 当前玩家所绑手柄的型号 id 与其映射档案(未绑则为 null,手柄列禁用)。
-const currentPadId = computed(() => {
-  const idx = currentPlayer.value.gamepadIndex
-  if (idx === null) return null
-  return gamepads.value.find((g) => g.index === idx)?.id ?? null
+// 手柄自动分配;映射始终属于当前玩家,未连接时也显示其已保存配置。
+const currentPad = computed(() => gamepads.value.find((g) => g.index === currentPlayer.value.gamepadIndex))
+const currentPadmap = computed(() => padmapFor(player.value))
+watch(() => [player.value, currentPlayer.value.gamepadIndex], () => {
+  capturing.value = null
+  stopCapturePad()
 })
-const currentPadmap = computed(() => (currentPadId.value ? padmapFor(currentPadId.value) : null))
 
-/** 手柄下拉项的显示名:截断过长的设备字符串。 */
-function gamepadName(g: { index: number; id: string }): string {
-  const name = g.id.length > 28 ? `${g.id.slice(0, 28)}…` : g.id
-  return `#${g.index} ${name}`
-}
-
-// RemoteSelect 需要 {value, label} 形式的选项。
-const gamepadOptions = computed(() => [
-  { value: null as number | null, label: '未绑定(仅键盘)' },
-  ...gamepads.value.map((g) => ({ value: g.index as number | null, label: gamepadName(g) })),
-])
 const speedOptions = SPEED_OPTIONS.map((s) => ({ value: s, label: `${s}×` }))
 const turboOptions = TURBO_HZ_OPTIONS.map((h) => ({ value: h, label: `${h} 次/秒` }))
 
@@ -93,9 +84,9 @@ const ASPECTS: { value: Aspect; label: string }[] = [
 ]
 
 const TOUCH_MODES: { value: TouchPadMode; label: string }[] = [
-  { value: 'auto', label: '自动(移动端)' },
-  { value: 'always', label: '移动端显示' },
-  { value: 'never', label: '从不显示' },
+  { value: 'auto', label: '默认(桌面隐藏，移动端显示)' },
+  { value: 'always', label: '显示' },
+  { value: 'never', label: '隐藏' },
 ]
 
 // 按键捕获:记录正在等待按键的按钮(null 表示未捕获)。
@@ -138,17 +129,17 @@ watch(capturing, (v) => {
 const capturingPad = ref<number | null>(null)
 let padRaf = 0
 // 录入起始时的手柄基线快照,只识别相对基线“新发生”的输入,避免把已按住的键/扳机偏置当成输入。
-let padBaseline: Gamepad | null = null
-// 录入目标:当前玩家所绑手柄的下标与型号 id(写入对应型号档案)。
+let padBaseline: Pick<Gamepad, 'buttons' | 'axes'> | null = null
+// 固定录入目标玩家与设备,切换玩家或设备时取消。
 let capturePadIndex: number | null = null
-let capturePadId: string | null = null
+let capturePlayer: number | null = null
 
 function startCapturePad(btn: number) {
-  if (currentPadId.value === null) return // 未绑手柄不可录入
+  if (!currentPad.value) return // 未连接手柄不可录入
   capturing.value = null
   capturingPad.value = btn
   capturePadIndex = currentPlayer.value.gamepadIndex
-  capturePadId = currentPadId.value
+  capturePlayer = player.value
   padBaseline = null
   if (!padRaf) padRaf = requestAnimationFrame(pollCapturePad)
 }
@@ -156,7 +147,7 @@ function startCapturePad(btn: number) {
 function stopCapturePad() {
   capturingPad.value = null
   capturePadIndex = null
-  capturePadId = null
+  capturePlayer = null
   padBaseline = null
   if (padRaf) {
     cancelAnimationFrame(padRaf)
@@ -173,14 +164,18 @@ function pollCapturePad() {
   const pads = navigator.getGamepads ? navigator.getGamepads() : []
   // 只读该玩家绑定的那一个手柄,避免另一个手柄的输入串入。
   const pad = capturePadIndex !== null ? pads[capturePadIndex] : null
-  if (!pad) return
+  if (!pad) { stopCapturePad(); return }
   if (!padBaseline) {
-    padBaseline = pad // 首帧仅取基线,下一帧起才识别新输入
+    padBaseline = { buttons: pad.buttons.map((b) => ({ pressed: b.pressed, value: b.value, touched: b.touched })), axes: [...pad.axes] }
     return
   }
   const sig = detectPadSignal(pad, padBaseline)
-  if (sig && capturePadId !== null) {
-    setPadBinding(capturePadId, capturingPad.value, sig)
+  padBaseline = {
+    buttons: pad.buttons.map((b) => ({ pressed: b.pressed, value: b.value, touched: b.touched })),
+    axes: [...pad.axes],
+  }
+  if (sig && capturePlayer !== null) {
+    setPadBinding(capturePlayer, capturingPad.value, sig)
     stopCapturePad()
   }
 }
@@ -272,6 +267,7 @@ onBeforeUnmount(() => {
         </SButton>
       </nav>
 
+      <fieldset class="settings-actions" :disabled="busy"><slot name="actions" :tab="tab" /></fieldset>
       <section :id="`settings-panel-${tab}`" class="body" :class="{ 'list-body': tab === 'library' || tab === 'saves' }" role="tabpanel" :aria-labelledby="`settings-tab-${tab}`">
         <RomStorePanel v-if="tab === 'library'" ref="libraryPanel" v-model:open="libraryOpen" @load="emit('loadRom', $event)" />
         <SaveStatePanel v-else-if="tab === 'saves'" ref="savePanel" v-model:open="savesOpen" :current-rom-key="currentRomKey" @load="emit('loadSave', $event)" />
@@ -289,15 +285,14 @@ onBeforeUnmount(() => {
             </SButton>
           </div>
 
-          <!-- 手柄分配:玩家选择使用哪个实体手柄;手柄映射按型号共享 -->
-          <label class="pad-assign">
-            <span>使用手柄</span>
-            <RemoteSelect v-model="currentPlayer.gamepadIndex" :options="gamepadOptions" />
-          </label>
-
+          <p class="tip">{{ player === 0 ? '支持画面摇杆、手柄和键盘同时操作。' : '支持手柄和键盘同时操作。' }}</p>
+          <div class="pad-assign" role="status">
+            <span>自动分配手柄</span>
+            <span class="pad-name">{{ currentPad ? `#${currentPad.index + 1} ${currentPad.id}` : '未连接，请连接手柄并按任意键激活' }}</span>
+          </div>
           <p class="tip">
-            点击键盘/手柄列,然后按下想绑定的键或手柄按钮(Esc 取消)。键盘按玩家各一套;
-            手柄映射按型号共享(同款手柄配一次即可),需先在上方选定手柄。连发 A/B 为按住自动连按。
+            手柄按连接或激活顺序分配给玩家一、玩家二。每位玩家的键盘与手柄配置独立保存。
+            点击下方按键后输入新绑定（Esc 取消）；连发 A/B 为按住自动连按。
           </p>
           <div class="key-head">
             <span class="key-name"></span>
@@ -314,19 +309,17 @@ onBeforeUnmount(() => {
             </SButton>
             <SButton
               :class="['key-bind', { capturing: capturingPad === item.btn }]"
-              :disabled="!currentPadId"
+              :disabled="!currentPad"
               @click="startCapturePad(item.btn)"
             >
               {{
                 capturingPad === item.btn
                   ? '按下手柄键…'
-                  : currentPadmap
-                    ? padLabel(currentPadmap[item.btn])
-                    : '未选手柄'
+                  : padLabel(currentPadmap[item.btn])
               }}
             </SButton>
           </div>
-          <SButton class="reset" @click="resetKeymap">恢复默认按键</SButton>
+          <SButton class="reset" @click="resetKeymap(player)">恢复当前玩家默认按键</SButton>
         </div>
 
         <!-- 显示 -->
@@ -441,10 +434,12 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 8px 0;
 }
-.pad-assign select,
-.pad-assign .remote-select {
-  min-width: 200px;
-  max-width: 240px;
+.pad-name {
+  max-width: 65%;
+  overflow-wrap: anywhere;
+  text-align: right;
+  color: #ccc;
+  font-size: 13px;
 }
 .tip {
   margin: 0 0 12px;
@@ -479,6 +474,7 @@ onBeforeUnmount(() => {
   color: #ddd;
 }
 .key-bind {
+  min-height: 44px;
   border: 1px solid #4a4a4a;
   background: #333;
   color: #eee;
@@ -488,6 +484,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
   text-align: center;
 }
+.key-bind:focus-visible { outline: 2px solid #4ea1ff; outline-offset: 2px; }
 .key-bind.capturing {
   border-color: #c0392b;
   color: #ffb3aa;
@@ -521,6 +518,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .settings-content { flex: 1; overflow: hidden; }
+.settings-actions { display: flex; flex-wrap: wrap; flex-shrink: 0; gap: 8px; min-width: 0; margin: 0; padding: 8px 16px; border: none; }
+.settings-actions:empty { display: none; }
 .tabs { flex-shrink: 0; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid #3a3a3a; }
 .tab { min-height: 44px; border-radius: 6px; }
 .tab:focus-visible { outline: 2px solid #4ea1ff; outline-offset: -2px; }

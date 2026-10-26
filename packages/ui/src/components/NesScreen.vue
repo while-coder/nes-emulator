@@ -12,15 +12,14 @@ import {
 import {
   buildCodeToButton,
   buildPadToButton,
-  ensurePadProfile,
   GAMEPAD_AXIS_THRESHOLD,
   isPadSignalActive,
   isTurbo,
-  listGamepads,
   PadButton,
   padmapFor,
   runnerButton,
   settings,
+  syncGamepadAssignments,
   TURBO_TARGET,
   type Aspect,
 } from '../emulator/settings'
@@ -30,6 +29,7 @@ import {
 // romKey/romName:当前载入卡带的稳定标识与显示名,用于把存档绑定到对应游戏。
 const props = defineProps<{
   inputLocked?: boolean
+  gamePaused?: boolean
   /** 应用级快捷键修饰键:桌面(Tauri)传 'ctrl',浏览器传 'shift'(默认)。 */
   modifier?: 'ctrl' | 'shift'
   romKey?: string | null
@@ -127,12 +127,12 @@ async function quickLoad() {
 const NATIVE_W = 256
 const NATIVE_H = 240
 
-// 键盘 -> (玩家,逻辑按钮):合并两玩家 keymap,冲突时后者(玩家2)覆盖。
+// 键盘映射独立生效;同一个键可同时控制两位玩家。
 const codeToAction = computed(() => {
-  const out: Record<string, { player: number; pad: number }> = {}
+  const out: Record<string, { player: number; pad: number }[]> = {}
   settings.players.forEach((p, pi) => {
     const map = buildCodeToButton(p.keymap)
-    for (const code in map) out[code] = { player: pi, pad: map[code] }
+    for (const code in map) (out[code] ??= []).push({ player: pi, pad: map[code] })
   })
   return out
 })
@@ -152,6 +152,16 @@ function isTypingTarget(e: KeyboardEvent): boolean {
 function onKeyDown(e: KeyboardEvent) {
   if (isTypingTarget(e)) return // 正在输入框打字,不抢按键
   if (props.inputLocked) return // 模态接管,游戏不收输入
+  if (e.code === 'Escape') {
+    e.preventDefault()
+    if (!e.repeat) emit('systemAction', 'open-settings')
+    return
+  }
+  if (e.code === 'F8') {
+    e.preventDefault()
+    if (!e.repeat) void quickSave()
+    return
+  }
   // 返回键(遥控器 BACK / Backspace / GoBack):交 App 分级返回(游戏中→停止游戏回主界面)。
   // 不区分平台:这些键在桌面游戏中本就空闲,无副作用;方向键照常落给 codeToAction(玩家)。
   if (e.code === 'Backspace' || e.key === 'GoBack' || e.key === 'BrowserBack') {
@@ -160,7 +170,7 @@ function onKeyDown(e: KeyboardEvent) {
     return
   }
   // 应用级快捷键:修饰键由 modifier 决定(桌面 Ctrl / 浏览器 Shift,避开浏览器占用键)。
-  // S=存档,L=读档,N=新建存档,A=存档列表,G=游戏库,P=暂停,F=全屏;Esc 也可暂停。
+  // S=存档,L=读档,N=新建存档,A=存档列表,G=游戏库,P=暂停,F=全屏;Esc 打开设置,F8 快速存档。
   const modActive = props.modifier === 'ctrl' ? e.ctrlKey : e.shiftKey
   if (modActive) {
     switch (e.code) {
@@ -194,41 +204,52 @@ function onKeyDown(e: KeyboardEvent) {
         return
     }
   }
-  if (e.code === 'Escape') {
-    e.preventDefault()
-    if (!e.repeat) emit('systemAction', 'toggle-pause')
-    return
-  }
+  if (props.gamePaused) return
   const a = codeToAction.value[e.code]
   if (!a) return
   e.preventDefault()
-  pressPad(a.player, a.pad)
+  a.forEach(({ player, pad }) => pressPad(player, pad, 'keyboard'))
 }
 function onKeyUp(e: KeyboardEvent) {
   if (isTypingTarget(e)) return
-  if (props.inputLocked) return
+  if (props.inputLocked || props.gamePaused) return
   const a = codeToAction.value[e.code]
   if (!a) return
   e.preventDefault()
-  releasePad(a.player, a.pad)
+  a.forEach(({ player, pad }) => releasePad(player, pad, 'keyboard'))
 }
 
-// 统一输入入口:键盘/手柄/触屏都经此派发;连发键转交 turbo 逻辑,其余直达引擎。
-function pressPad(player: number, pad: number) {
-  if (isTurbo(pad)) {
-    turboStart(player, pad)
-  } else {
-    const btn = runnerButton(player, pad)
-    if (btn !== null) runner?.press(btn)
-  }
+// 每个逻辑按钮分别跟踪输入来源,任一来源仍按住时保持按下。
+type InputSource = 'keyboard' | 'gamepad' | 'touch'
+const heldInputs = new Map<string, Set<InputSource>>()
+const enginePressed = new Set<Button>()
+function syncButton(player: number, pad: number) {
+  const btn = runnerButton(player, pad)
+  if (btn === null) return
+  const turbo = pad === PadButton.A ? PadButton.TurboA : pad === PadButton.B ? PadButton.TurboB : null
+  const pressed = !!heldInputs.get(`${player}:${pad}`)?.size ||
+    (turbo !== null && !!turboPressed.get(turboKey(player, turbo)))
+  if (pressed === enginePressed.has(btn)) return
+  if (pressed) { enginePressed.add(btn); runner?.press(btn) }
+  else { enginePressed.delete(btn); runner?.release(btn) }
 }
-function releasePad(player: number, pad: number) {
-  if (isTurbo(pad)) {
-    turboEnd(player, pad)
-  } else {
-    const btn = runnerButton(player, pad)
-    if (btn !== null) runner?.release(btn)
-  }
+function pressPad(player: number, pad: number, source: InputSource) {
+  const key = `${player}:${pad}`
+  const sources = heldInputs.get(key) ?? new Set<InputSource>()
+  if (sources.has(source)) return
+  sources.add(source)
+  heldInputs.set(key, sources)
+  if (isTurbo(pad)) turboStart(player, pad)
+  else syncButton(player, pad)
+}
+function releasePad(player: number, pad: number, source: InputSource) {
+  const key = `${player}:${pad}`
+  const sources = heldInputs.get(key)
+  if (!sources?.delete(source)) return
+  if (sources.size) return
+  heldInputs.delete(key)
+  if (isTurbo(pad)) turboEnd(player, pad)
+  else syncButton(player, pad)
 }
 
 // ===== 连发(Turbo):引擎无此功能,前端定时反复 press/release 模拟 =====
@@ -240,13 +261,6 @@ let turboTimer = 0
 function turboKey(player: number, pad: number): string {
   return `${player}:${pad}`
 }
-// 连发键实际反复触发的引擎按钮:经 TURBO_TARGET 转成 A/B 再按玩家路由。
-function turboTargetButton(player: number, pad: number): Button | null {
-  const target = TURBO_TARGET[pad]
-  if (target === undefined) return null
-  return runnerButton(player, target)
-}
-
 function turboIntervalMs(): number {
   const hz = settings.misc.turboHz > 0 ? settings.misc.turboHz : 16
   // press 与 release 各占一拍,故频率 ×2。
@@ -255,12 +269,9 @@ function turboIntervalMs(): number {
 function turboTick() {
   activeTurbo.forEach((key) => {
     const [player, pad] = key.split(':').map(Number)
-    const btn = turboTargetButton(player, pad)
-    if (btn === null) return
     const next = !turboPressed.get(key)
     turboPressed.set(key, next)
-    if (next) runner?.press(btn)
-    else runner?.release(btn)
+    syncButton(player, TURBO_TARGET[pad])
   })
 }
 function ensureTurboTimer() {
@@ -278,8 +289,7 @@ function turboEnd(player: number, pad: number) {
   if (!activeTurbo.has(key)) return
   activeTurbo.delete(key)
   turboPressed.set(key, false)
-  const btn = turboTargetButton(player, pad)
-  if (btn !== null) runner?.release(btn)
+  syncButton(player, TURBO_TARGET[pad])
   if (activeTurbo.size === 0 && turboTimer) {
     clearInterval(turboTimer)
     turboTimer = 0
@@ -298,8 +308,8 @@ watch(
 )
 
 // ===== 实体手柄(Gamepad API,USB/蓝牙皆通过此接口)=====
-// 浏览器不派发手柄事件,需每帧轮询 navigator.getGamepads() 读取状态。
-// 每玩家只读其绑定的 gamepadIndex 对应手柄,并按该手柄型号(id)的映射派发;
+// 手柄按键没有独立事件,需每帧轮询 navigator.getGamepads() 读取状态。
+// 每玩家只读自动分配的手柄,并按该玩家独立保存的映射派发;
 // 与键盘一样按边沿(本帧 active 集合相对上一帧的增减)触发 press/release。
 let padRaf = 0
 const padActive: Set<number>[] = [new Set<number>(), new Set<number>()]
@@ -312,8 +322,10 @@ function detectSystemPadButtons(pads: (Gamepad | null)[]) {
   let rb = false
   for (const pad of pads) {
     if (!pad) continue
-    if (pad.buttons[4]?.pressed) lb = true
-    if (pad.buttons[5]?.pressed) rb = true
+    const player = settings.players.find((p) => p.gamepadIndex === pad.index)
+    const bound = new Set(Object.values(player?.padmap ?? {}))
+    if (!bound.has('b4') && pad.buttons[4]?.pressed) lb = true
+    if (!bound.has('b5') && pad.buttons[5]?.pressed) rb = true
   }
   if (lb && !sysPadPrev.lb) emit('systemAction', 'toggle-pause')
   if (rb && !sysPadPrev.rb) emit('systemAction', 'open-library')
@@ -328,6 +340,8 @@ function onVisibilityChange() {
 
 // 锁定或失焦时释放所有已按下的游戏按钮与连发。
 function releaseAllGameInput() {
+  heldInputs.clear()
+  enginePressed.clear()
   activeTurbo.clear()
   turboPressed.clear()
   if (turboTimer) {
@@ -353,45 +367,37 @@ function releaseAllGameInput() {
   padActive.forEach((s) => s.clear())
 }
 
-// 手柄即插即用:检测到手柄且玩家1未绑定时,自动把首个手柄绑给玩家1并建立默认映射,
-// 免去进设置手动分配(用户之后仍可在设置里改绑)。
-function autoBindGamepad() {
-  if (settings.players[0].gamepadIndex !== null) return
-  const pads = listGamepads()
-  if (pads.length === 0) return
-  settings.players[0].gamepadIndex = pads[0].index
-  ensurePadProfile(pads[0].id)
-}
-
 function pollGamepads() {
   padRaf = requestAnimationFrame(pollGamepads)
+  syncGamepadAssignments()
   if (!runner) return
   if (props.inputLocked || document.hidden) return // 模态或后台不向游戏送输入(库内导航自行轮询)
   const pads = navigator.getGamepads ? navigator.getGamepads() : []
   detectSystemPadButtons(pads)
+  if (props.gamePaused) return
   settings.players.forEach((p, pi) => {
     const pad = p.gamepadIndex !== null ? pads[p.gamepadIndex] : null
     const now = new Set<number>()
     if (pad) {
-      const map = buildPadToButton(padmapFor(pad.id))
+      const map = buildPadToButton(padmapFor(pi))
       for (const sig in map) {
         if (isPadSignalActive(pad, sig)) now.add(map[sig])
       }
       // 左摇杆(axes[0]=X,axes[1]=Y)始终兼作方向键,与十字键并存:
-      // NES 方向映射默认只绑 D-pad,这里叠加摇杆,让摇杆/十字键都能操作方向。
+      // 默认叠加摇杆方向;该轴已被玩家自定义绑定时,以其配置为准。
       const ax = pad.axes[0] ?? 0
       const ay = pad.axes[1] ?? 0
-      if (ax < -GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Left)
-      else if (ax > GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Right)
-      if (ay < -GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Up)
-      else if (ay > GAMEPAD_AXIS_THRESHOLD) now.add(PadButton.Down)
+      if (ax < -GAMEPAD_AXIS_THRESHOLD && map['a0-'] === undefined) now.add(PadButton.Left)
+      else if (ax > GAMEPAD_AXIS_THRESHOLD && map['a0+'] === undefined) now.add(PadButton.Right)
+      if (ay < -GAMEPAD_AXIS_THRESHOLD && map['a1-'] === undefined) now.add(PadButton.Up)
+      else if (ay > GAMEPAD_AXIS_THRESHOLD && map['a1+'] === undefined) now.add(PadButton.Down)
     }
     const prev = padActive[pi] ?? new Set<number>()
     now.forEach((pb) => {
-      if (!prev.has(pb)) pressPad(pi, pb) // 新按下
+      if (!prev.has(pb)) pressPad(pi, pb, 'gamepad') // 新按下
     })
     prev.forEach((pb) => {
-      if (!now.has(pb)) releasePad(pi, pb) // 已松开
+      if (!now.has(pb)) releasePad(pi, pb, 'gamepad') // 已松开
     })
     padActive[pi] = now
   })
@@ -400,12 +406,12 @@ function pollGamepads() {
 // 触屏虚拟手柄(TouchControls)回调:仅控制玩家1(单屏双人不现实)。
 // 首次按下顺带解锁音频(iOS 要求音频在用户手势内启动)。
 function onTouchPress(pad: number) {
-  if (props.inputLocked || document.hidden) return
+  if (props.inputLocked || props.gamePaused || document.hidden) return
   runner?.resumeAudio()
-  pressPad(0, pad)
+  pressPad(0, pad, 'touch')
 }
 function onTouchRelease(pad: number) {
-  releasePad(0, pad)
+  releasePad(0, pad, 'touch')
 }
 
 // ===== 显示设置 =====
@@ -471,8 +477,9 @@ onMounted(() => {
   window.addEventListener('keyup', onKeyUp)
   window.addEventListener('blur', releaseAllGameInput)
   document.addEventListener('visibilitychange', onVisibilityChange)
-  window.addEventListener('gamepadconnected', autoBindGamepad)
-  autoBindGamepad() // 进入时已连手柄则立即绑定
+  window.addEventListener('gamepadconnected', syncGamepadAssignments)
+  window.addEventListener('gamepaddisconnected', syncGamepadAssignments)
+  syncGamepadAssignments() // 进入时已连手柄则立即绑定
   padRaf = requestAnimationFrame(pollGamepads)
   ro = new ResizeObserver(() => applyDisplaySize())
   if (displayRef.value) ro.observe(displayRef.value)
@@ -484,7 +491,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('blur', releaseAllGameInput)
   document.removeEventListener('visibilitychange', onVisibilityChange)
-  window.removeEventListener('gamepadconnected', autoBindGamepad)
+  window.removeEventListener('gamepadconnected', syncGamepadAssignments)
+  window.removeEventListener('gamepaddisconnected', syncGamepadAssignments)
   if (padRaf) cancelAnimationFrame(padRaf)
   padRaf = 0
   if (turboTimer) clearInterval(turboTimer)
@@ -498,11 +506,13 @@ onBeforeUnmount(() => {
 })
 
 // 设置变化 -> 同步到 runner 与画面尺寸。
+watch(() => settings.players.map((p) => [p.keymap, p.padmap]), releaseAllGameInput, { deep: true })
+
 watch(() => settings.audio.volume, (v) => runner?.setVolume(v))
 watch(() => settings.misc.speed, (v) => runner?.setSpeed(v))
 // 进入模态(锁定输入)时释放所有游戏按键,避免卡键。
 watch(
-  () => props.inputLocked,
+  () => props.inputLocked || props.gamePaused,
   (locked) => {
     if (locked) releaseAllGameInput()
   },
@@ -565,7 +575,7 @@ defineExpose({
 <template>
   <div
     class="screen-wrap"
-    :class="{ 'without-controls': settings.misc.touchPad === 'never' }"
+    :class="{ 'without-controls': settings.misc.touchPad === 'never', 'always-controls': settings.misc.touchPad === 'always' }"
     :style="{ background: settings.display.bgColor }"
   >
     <div ref="displayRef" class="display-area">
@@ -580,7 +590,15 @@ defineExpose({
     </div>
 
     <!-- 触屏虚拟手柄(经典分离式,支持斜向与多点触控) -->
-    <TouchControls :disabled="inputLocked" @press="onTouchPress" @release="onTouchRelease" />
+    <TouchControls
+      :disabled="inputLocked || gamePaused"
+      :menu-disabled="inputLocked"
+      :can-save="!!romKey && !inputLocked"
+      @menu="emit('systemAction', 'open-settings')"
+      @quick-save="quickSave"
+      @press="onTouchPress"
+      @release="onTouchRelease"
+    />
   </div>
 </template>
 
@@ -615,6 +633,16 @@ defineExpose({
   .screen-wrap:not(.without-controls) {
     grid-template-rows: repeat(2, minmax(0, 1fr));
   }
+}
+@media (orientation: landscape) {
+  .screen-wrap.always-controls {
+    grid-template-columns: clamp(156px, 22vw, 208px) minmax(0, 1fr) clamp(156px, 22vw, 208px);
+    grid-template-rows: 56px minmax(0, 1fr) 56px;
+  }
+  .screen-wrap.always-controls .display-area { grid-column: 2; grid-row: 2; }
+}
+@media (orientation: portrait) {
+  .screen-wrap.always-controls { grid-template-rows: repeat(2, minmax(0, 1fr)); }
 }
 /* 画面盒子尺寸由 JS 按宽高比/整数倍算出 */
 .frame {
