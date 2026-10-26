@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SEmpty from '@qingfeng346/ui-kit/components/SEmpty.vue'
+import SHint from '@qingfeng346/ui-kit/components/SHint.vue'
 import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch, watchEffect } from 'vue'
 import {
@@ -289,11 +291,11 @@ onBeforeUnmount(() => {
     >
       <template #actions="{ tab }">
         <template v-if="tab === 'library'">
-          <SButton :disabled="loading" @click="openRom">{{ loading ? openLoadingLabel : '打开本地 ROM' }}</SButton>
+          <SButton :loading="loading" @click="openRom">{{ loading ? openLoadingLabel : '打开本地 ROM' }}</SButton>
         </template>
         <template v-else-if="tab === 'saves'">
-          <SButton :disabled="!romName || loading || creatingSave" @click="newSave">{{ creatingSave ? '保存中…' : '新建存档' }}</SButton>
-          <span v-if="saveMessage" role="status">{{ saveMessage }}</span>
+          <SButton :loading="creatingSave" :disabled="!romName || loading" @click="newSave">{{ creatingSave ? '保存中…' : '新建存档' }}</SButton>
+          <SHint v-if="saveMessage" role="status">{{ saveMessage }}</SHint>
         </template>
         <template v-else-if="tab === 'misc'">
           <SButton :disabled="!romName || loading" @click="reset">复位游戏</SButton>
@@ -321,10 +323,10 @@ onBeforeUnmount(() => {
         :rom-name="romName"
         @system-action="onSystemAction"
       />
-      <div v-if="!romName && !layoutEditing" class="empty-state">
+      <SEmpty v-if="!romName && !layoutEditing" class="empty-state">
         <p>通过菜单选择游戏或本地 ROM 开始游玩</p>
-        <small>Esc 打开设置 · F8 快速存档</small>
-      </div>
+        <SHint>Esc 打开设置 · F8 快速存档</SHint>
+      </SEmpty>
     </main>
 
     <Transition name="toast">

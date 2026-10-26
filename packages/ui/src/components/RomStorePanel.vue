@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import SCheckbox from '@qingfeng346/ui-kit/components/checkbox/SCheckbox.vue'
+import STag from '@qingfeng346/ui-kit/components/STag.vue'
+import SEmpty from '@qingfeng346/ui-kit/components/SEmpty.vue'
+import SHint from '@qingfeng346/ui-kit/components/SHint.vue'
 import SInput from '@qingfeng346/ui-kit/components/input/SInput.vue'
 import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { computed, ref, watch } from 'vue'
@@ -276,12 +280,12 @@ function formatError(err: unknown): string {
         <SInput v-model:value="query" class="search" type="search" placeholder="搜索游戏、厂商、标签" />
         <RemoteSelect v-model="genre" class="select" :options="genreOptions" />
         <RemoteSelect v-model="sort" class="select" :options="SORT_OPTIONS" />
-        <label class="check"><input v-model="downloadedOnly" type="checkbox" />已下载 ({{ cachedRoms.length }})</label>
+        <SCheckbox v-model:checked="downloadedOnly" class="check">已下载 ({{ cachedRoms.length }})</SCheckbox>
       </div>
 
       <div class="store-summary">
         <span>{{ catalogLoading ? '正在同步目录 · ' : '' }}匹配 {{ totalCount }} 个{{ totalCount ? `，显示第 ${pageStart + 1}-${pageEnd} 个` : '' }}</span>
-        <span v-if="error" class="error">{{ error }}</span>
+        <SHint v-if="error" type="error" class="error" role="alert">{{ error }}</SHint>
       </div>
 
       <div class="game-list">
@@ -293,13 +297,13 @@ function formatError(err: unknown): string {
           <div class="game-main">
             <div class="game-title-row">
               <h3>{{ game.name }}</h3>
-              <span :class="['cache-state', cachedKeys.has(romKey(game)) ? 'cached' : '']">
+              <STag size="small" class="cache-state" :type="cachedKeys.has(romKey(game)) ? 'success' : 'default'">
                 {{ cachedKeys.has(romKey(game)) ? '已下载' : '未下载' }}
-              </span>
+              </STag>
             </div>
             <p class="meta">{{ metaLine(game) }}</p>
             <div v-if="game.tags?.length" class="tags">
-              <span v-for="tag in game.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
+              <STag v-for="tag in game.tags.slice(0, 4)" :key="tag" size="small">{{ tag }}</STag>
             </div>
           </div>
 
@@ -329,7 +333,7 @@ function formatError(err: unknown): string {
           </div>
         </article>
 
-        <p v-if="visibleGames.length === 0" class="empty">没有匹配的 ROM</p>
+        <SEmpty v-if="visibleGames.length === 0" class="empty" :description="catalogLoading ? '正在加载 ROM 目录…' : '没有匹配的 ROM'" />
       </div>
 
       <div v-if="totalPages > 1" class="store-pager">
@@ -435,15 +439,6 @@ function formatError(err: unknown): string {
 }
 .cache-state {
   flex: 0 0 auto;
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: #3a3f48;
-  color: #aeb6c2;
-  font-size: 11px;
-}
-.cache-state.cached {
-  background: #24473c;
-  color: #89d8b2;
 }
 .meta {
   margin: 5px 0 0;
@@ -459,13 +454,6 @@ function formatError(err: unknown): string {
   flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
-}
-.tags span {
-  border: 1px solid #48515d;
-  border-radius: 5px;
-  color: #c6ccd5;
-  padding: 2px 6px;
-  font-size: 11px;
 }
 .game-actions {
   display: flex;

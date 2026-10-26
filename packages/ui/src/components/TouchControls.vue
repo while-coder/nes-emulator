@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 /** 固定底座八方向摇杆，保留 NES 数字方向、斜向与多点触控。 */
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { PadButton, settings, type TouchLayoutGroup } from '../emulator/settings'
@@ -240,8 +241,8 @@ onBeforeUnmount(() => {
     <!-- 横屏分列于摇杆和 A/B 上方，竖屏保持一行。 -->
     <div class="fn">
       <div class="fn-group fn-left" aria-label="菜单和快存" data-layout-group="functionsLeft" :style="positionStyle('functionsLeft')">
-      <button class="fkey system-key" :disabled="!editing && menuDisabled" aria-label="打开设置菜单" @click="emit('menu')">菜单</button>
-      <button class="fkey system-key" :disabled="!editing && !canSave" aria-label="快速存档" @click="emit('quickSave')">快存</button>
+      <SButton class="fkey system-key" :disabled="!editing && menuDisabled" aria-label="打开设置菜单" @click="emit('menu')">菜单</SButton>
+      <SButton class="fkey system-key" :disabled="!editing && !canSave" aria-label="快速存档" @click="emit('quickSave')">快存</SButton>
 
       </div>
       <div class="fn-group fn-right" aria-label="SELECT 和 START" data-layout-group="functionsRight" :style="positionStyle('functionsRight')">
@@ -323,7 +324,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
   </div>
-  <button
+  <SButton
     v-if="!editing && settings.misc.touchPad === 'never'"
     class="fkey system-key menu-entry"
     :disabled="!editing && menuDisabled"
@@ -331,7 +332,7 @@ onBeforeUnmount(() => {
     @click="emit('menu')"
   >
     菜单
-  </button>
+  </SButton>
 </template>
 
 <style scoped>

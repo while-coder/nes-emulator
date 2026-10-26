@@ -1,7 +1,12 @@
 <script setup lang="ts">
+import SIconButton from '@qingfeng346/ui-kit/components/button/SIconButton.vue'
+import STag from '@qingfeng346/ui-kit/components/STag.vue'
+import SEmpty from '@qingfeng346/ui-kit/components/SEmpty.vue'
+import SHint from '@qingfeng346/ui-kit/components/SHint.vue'
 import SInput from '@qingfeng346/ui-kit/components/input/SInput.vue'
 import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { computed, nextTick, ref, watch } from 'vue'
+import RemoteSelect from './RemoteSelect.vue'
 import type { SaveState } from '../emulator/runner'
 import type { DownloadProgress } from '../store/romDownloader'
 import { acquireRomByKey } from '../store/romResolver'
@@ -33,6 +38,11 @@ const records = ref<SaveStateRecord[]>([])
 const query = ref('')
 // 过滤范围:'current' 当前游戏 / 'all' 全部 / 其余为某游戏的 sha256。
 const filter = ref<'current' | 'all' | string>('all')
+const filterOptions = computed(() => [
+  ...(props.currentRomKey ? [{ value: 'current', label: '当前游戏' }] : []),
+  { value: 'all', label: '全部游戏' },
+  ...games.value.map(game => ({ value: game.key, label: game.name })),
+])
 const busyKey = ref<string | null>(null)
 const error = ref<string | null>(null)
 const progress = ref<DownloadProgress | null>(null)
@@ -118,8 +128,7 @@ async function loadRecord(record: SaveStateRecord) {
       onProgress: (p) => (progress.value = p),
     })
     if (!resolved) {
-      error.value = null
-      window.alert(`未在游戏库中找到《${record.name}》,无法读档。请先在 ROM 库中添加该游戏。`)
+      error.value = `未在游戏库中找到《${record.name}》,无法读档。请先在 ROM 库中添加该游戏。`
       return
     }
     emit('load', {
@@ -200,32 +209,29 @@ function formatError(err: unknown): string {
   <section class="store-panel">
       <div class="store-tools">
         <SInput v-model:value="query" class="search" type="search" placeholder="搜索存档名、游戏名" />
-        <select v-model="filter" class="select">
-          <option v-if="currentRomKey" value="current">当前游戏</option>
-          <option value="all">全部游戏</option>
-          <option v-for="g in games" :key="g.key" :value="g.key">{{ g.name }}</option>
-        </select>
+        <RemoteSelect v-model="filter" class="select" :options="filterOptions" />
       </div>
 
       <div class="store-summary">
         <span>显示 {{ filteredRecords.length }} 条</span>
-        <span v-if="error" class="error">{{ error }}</span>
+        <SHint v-if="error" type="error" class="error" role="alert">{{ error }}</SHint>
       </div>
 
       <div class="save-list">
         <article v-for="record in filteredRecords" :key="record.key" class="save-card">
           <div class="save-main">
             <div class="save-title-row">
-              <span
+              <STag
+                size="small"
                 class="badge"
-                :class="isQuickSave(record) ? 'badge-quick' : 'badge-normal'"
+                :type="isQuickSave(record) ? 'warning' : 'info'"
                 :title="isQuickSave(record) ? '快速存档(S 键覆盖式单槽)' : '普通存档'"
               >
                 {{ isQuickSave(record) ? '快速' : '普通' }}
-              </span>
-              <input
+              </STag>
+              <SInput
                 v-if="editingKey === record.key"
-                v-model="editingText"
+                v-model:value="editingText"
                 class="rename-input"
                 type="text"
                 @keydown.enter.prevent="commitEdit(record)"
@@ -235,15 +241,17 @@ function formatError(err: unknown): string {
               <h3 v-else :title="saveLabel(record)" @click="startEdit(record)">
                 {{ saveLabel(record) }}
               </h3>
-              <SButton
+              <SIconButton
                 v-if="editingKey !== record.key"
+                :size="44"
+                aria-label="重命名"
                 class="icon-btn"
                 title="重命名"
                 :disabled="busyKey !== null"
                 @click="startEdit(record)"
               >
                 ✎
-              </SButton>
+              </SIconButton>
             </div>
             <p class="meta">{{ record.name }}</p>
             <p class="meta time">{{ formatTime(record.savedAt) }}</p>
@@ -260,9 +268,7 @@ function formatError(err: unknown): string {
           </div>
         </article>
 
-        <p v-if="filteredRecords.length === 0" class="empty">
-          {{ records.length === 0 ? '还没有任何存档' : '没有匹配的存档' }}
-        </p>
+        <SEmpty v-if="filteredRecords.length === 0" class="empty" :description="records.length === 0 ? '还没有任何存档' : '没有匹配的存档'" />
       </div>
   </section>
 </template>
@@ -341,21 +347,6 @@ function formatError(err: unknown): string {
 }
 .badge {
   flex: 0 0 auto;
-  padding: 2px 7px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1.4;
-}
-.badge-quick {
-  background: rgba(214, 179, 106, 0.18);
-  color: #e3c178;
-  border: 1px solid rgba(214, 179, 106, 0.4);
-}
-.badge-normal {
-  background: rgba(47, 111, 159, 0.18);
-  color: #8fc4ec;
-  border: 1px solid rgba(47, 111, 159, 0.4);
 }
 .save-title-row h3 {
   min-width: 0;

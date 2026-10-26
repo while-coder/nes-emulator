@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SSlider from '@qingfeng346/ui-kit/components/SSlider.vue'
+import SHint from '@qingfeng346/ui-kit/components/SHint.vue'
 import SModal from '@qingfeng346/ui-kit/components/SModal.vue'
 import SSwitch from '@qingfeng346/ui-kit/components/SSwitch.vue'
 import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
@@ -279,7 +281,7 @@ onBeforeUnmount(() => {
             <span>触屏按键布局</span>
             <SButton @click="emit('editTouchLayout')">调整位置</SButton>
           </div>
-          <p class="tip">拖动摇杆、A/B 和两组功能键调整位置，横屏与竖屏分别保存。</p>
+          <SHint class="tip">拖动摇杆、A/B 和两组功能键调整位置，横屏与竖屏分别保存。</SHint>
           <!-- 玩家切换 -->
           <div class="player-switch">
             <SButton
@@ -292,15 +294,15 @@ onBeforeUnmount(() => {
             </SButton>
           </div>
 
-          <p class="tip">{{ player === 0 ? '支持画面摇杆、手柄和键盘同时操作。' : '支持手柄和键盘同时操作。' }}</p>
+          <SHint class="tip">{{ player === 0 ? '支持画面摇杆、手柄和键盘同时操作。' : '支持手柄和键盘同时操作。' }}</SHint>
           <div class="pad-assign" role="status">
             <span>自动分配手柄</span>
             <span class="pad-name">{{ currentPad ? `#${currentPad.index + 1} ${currentPad.id}` : '未连接，请连接手柄并按任意键激活' }}</span>
           </div>
-          <p class="tip">
+          <SHint class="tip">
             手柄按连接或激活顺序分配给玩家一、玩家二。每位玩家的键盘与手柄配置独立保存。
             点击下方按键后输入新绑定（Esc 取消）；连发 A/B 为按住自动连按。
-          </p>
+          </SHint>
           <div class="key-head">
             <span class="key-name"></span>
             <span class="col-head">键盘</span>
@@ -357,7 +359,7 @@ onBeforeUnmount(() => {
         <div v-else-if="tab === 'audio'" class="form">
           <label class="row">
             <span>音量 {{ volumePct }}%</span>
-            <input v-model.number="volumePct" type="range" min="0" max="100" />
+            <SSlider v-model:value="volumePct" :min="0" :max="100" aria-label="音量" />
           </label>
         </div>
 
@@ -376,7 +378,7 @@ onBeforeUnmount(() => {
             <RemoteSelect v-model="settings.misc.turboHz" :options="turboOptions" />
           </label>
           <label class="row">
-            <span>显示按下的按键<br /><small class="hint-text">调试用,状态栏实时显示键盘/手柄/遥控按键</small></span>
+            <span>显示按下的按键<br /><SHint class="hint-text">调试用,状态栏实时显示键盘/手柄/遥控按键</SHint></span>
             <SSwitch v-model:value="settings.misc.showInputDebug" />
           </label>
           <SButton class="reset" @click="resetSettings">恢复全部默认设置</SButton>
