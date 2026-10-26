@@ -71,8 +71,8 @@ const ASPECTS: { value: Aspect; label: string }[] = [
 ]
 
 const TOUCH_MODES: { value: TouchPadMode; label: string }[] = [
-  { value: 'auto', label: '自动(触屏/窄屏)' },
-  { value: 'always', label: '始终显示' },
+  { value: 'auto', label: '自动(移动端)' },
+  { value: 'always', label: '移动端显示' },
   { value: 'never', label: '从不显示' },
 ]
 

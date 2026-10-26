@@ -39,7 +39,7 @@ const props = defineProps<{
 const emit = defineEmits<{ systemAction: [action: string] }>()
 
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const wrapRef = ref<HTMLDivElement | null>(null)
+const displayRef = ref<HTMLDivElement | null>(null)
 const frameRef = ref<HTMLDivElement | null>(null)
 let runner: NesRunner | null = null
 
@@ -416,7 +416,7 @@ const canvasStyle = computed(() => ({
 
 /** 量测容器,按宽高比与整数倍缩放算出画面盒子尺寸并写入 frame。 */
 function applyDisplaySize() {
-  const wrap = wrapRef.value
+  const wrap = displayRef.value
   const frame = frameRef.value
   if (!wrap || !frame) return
   const cw = wrap.clientWidth
@@ -430,7 +430,7 @@ function applyDisplaySize() {
     h = ch
     w = h * ar
   }
-  if (settings.display.integerScale) {
+  if (settings.display.integerScale && h >= NATIVE_H) {
     // 以原生 240 行为基准取整数倍,再按比例推算宽度。
     const scale = Math.max(1, Math.floor(h / NATIVE_H))
     h = NATIVE_H * scale
@@ -442,8 +442,8 @@ function applyDisplaySize() {
       w = h * ar
     }
   }
-  frame.style.width = `${Math.round(w)}px`
-  frame.style.height = `${Math.round(h)}px`
+  frame.style.width = `${Math.floor(w)}px`
+  frame.style.height = `${Math.floor(h)}px`
 }
 
 let ro: ResizeObserver | null = null
@@ -467,7 +467,7 @@ onMounted(() => {
   autoBindGamepad() // 进入时已连手柄则立即绑定
   padRaf = requestAnimationFrame(pollGamepads)
   ro = new ResizeObserver(() => applyDisplaySize())
-  if (wrapRef.value) ro.observe(wrapRef.value)
+  if (displayRef.value) ro.observe(displayRef.value)
   applyDisplaySize()
 })
 
@@ -485,7 +485,6 @@ onBeforeUnmount(() => {
   ro = null
   runner?.dispose()
   runner = null
-  unlockOrientation()
 })
 
 // 设置变化 -> 同步到 runner 与画面尺寸。
@@ -506,35 +505,10 @@ watch(
 // 全屏由 App 层统一管理(见 useFullscreen):对整个应用根容器全屏,
 // 键盘 mod+F 经 systemAction('toggle-fullscreen') 上抛,本组件不再自行控制全屏。
 
-// 屏幕方向:载入 ROM 后尝试锁横屏(NES 横屏游玩体验更好),停止 / 卸载时解锁。
-// 仅在 PWA standalone 或全屏下生效;桌面 / 普通浏览器标签会被拒,静默忽略。
-// 类型断言:lock/unlock 是 Screen Orientation API,实际浏览器(Chrome/Android)支持,
-// 但 TS lib.dom 在当前版本里尚未声明,故用结构化类型绕过。
-type OrientationLockApi = {
-  lock?: (orientation: string) => Promise<void>
-  unlock?: () => void
-}
-async function lockLandscape() {
-  try {
-    await (screen.orientation as unknown as OrientationLockApi | undefined)?.lock?.('landscape')
-  } catch (err) {
-    // 桌面、iOS Safari、非 PWA 浏览器都可能拒绝,这是预期行为。
-    console.debug('[NES] 横屏锁定不可用', err)
-  }
-}
-function unlockOrientation() {
-  try {
-    ;(screen.orientation as unknown as OrientationLockApi | undefined)?.unlock?.()
-  } catch {
-    // ignore
-  }
-}
-
 // 暴露给父组件
 async function loadRom(bytes: Uint8Array) {
   runner?.resumeAudio()
   await runner?.loadRom(bytes)
-  void lockLandscape()
 }
 function reset() {
   runner?.reset()
@@ -551,7 +525,6 @@ function resume() {
 }
 function stop() {
   runner?.unload()
-  unlockOrientation()
 }
 
 // 供存档列表面板使用:抓取当前引擎状态 / 把某条存档状态应用到引擎。
@@ -580,13 +553,20 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="wrapRef" class="screen-wrap" :style="{ background: settings.display.bgColor }">
-    <div ref="frameRef" class="frame">
-      <canvas ref="canvasRef" class="screen" :style="canvasStyle" />
-      <div v-if="settings.display.scanlines" class="scanlines" />
-      <transition name="toast-fade">
-        <div v-if="toast" class="toast">{{ toast }}</div>
-      </transition>
+  <div
+    class="screen-wrap"
+    :class="{ 'without-controls': settings.misc.touchPad === 'never' }"
+    :style="{ background: settings.display.bgColor }"
+  >
+    <div ref="displayRef" class="display-area">
+      <div ref="frameRef" class="frame">
+        <canvas ref="canvasRef" class="screen" :style="canvasStyle" />
+        <div v-if="settings.display.scanlines" class="scanlines" />
+        <transition name="toast-fade">
+          <div v-if="toast" class="toast">{{ toast }}</div>
+        </transition>
+      </div>
+
     </div>
 
     <!-- 触屏虚拟手柄(经典分离式,支持斜向与多点触控) -->
@@ -596,14 +576,39 @@ defineExpose({
 
 <style scoped>
 .screen-wrap {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
+  position: relative;
+  display: grid;
   width: 100%;
   height: 100%;
   min-height: 0;
+  min-width: 0;
+}
+.display-area {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+@media (pointer: coarse) and (orientation: landscape) {
+  .screen-wrap:not(.without-controls) {
+    grid-template-columns: clamp(156px, 22vw, 208px) minmax(0, 1fr) clamp(156px, 22vw, 208px);
+    grid-template-rows: 56px minmax(0, 1fr) 56px;
+  }
+  .screen-wrap:not(.without-controls) .display-area {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+@media (pointer: coarse) and (orientation: portrait) {
+  .screen-wrap:not(.without-controls) {
+    grid-template-rows: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+  .display-area {
+    align-items: flex-start;
+  }
 }
 /* 画面盒子尺寸由 JS 按宽高比/整数倍算出 */
 .frame {

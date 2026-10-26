@@ -7,7 +7,7 @@
  *   支持斜向(斜走/斜跳)与滑动换向;手指落在两键交界也能同时触发。
  * - 动作/功能键各自独立,靠 pointerId 天然支持多点触控(方向 + A + B 同时按)。
  * - 所有交互元素 setPointerCapture,手指滑出键外仍能收到 release,避免卡键。
- * - 尺寸用 clamp() 自适应 + 左右贴边定位,任何窄屏都不溢出;底部/两侧留安全区。
+ * - 横屏左方向、中功能、右动作;竖屏上功能、下方向与动作,避开画面与安全区。
  *
  * 仅控制玩家1(单屏双人不现实)。press/release 交父组件路由到引擎(含连发逻辑)。
  */
@@ -181,43 +181,76 @@ function onBtnUp(e: PointerEvent, pad: PadButton) {
 </template>
 
 <style scoped>
-/* 覆盖在画面底部,容器本身不接收指针,只有实际按键接收(避免挡住画面点击) */
 .touch-controls {
   display: none;
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 5;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding-left: max(14px, env(safe-area-inset-left));
-  padding-right: max(14px, env(safe-area-inset-right));
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
   pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
-.touch-controls.always {
-  display: flex;
+/* 根据主要输入设备区分移动端；桌面窄窗口也不显示虚拟手柄。 */
+@media (pointer: coarse) {
+  .touch-controls:not(.never) {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    --pad-size: clamp(132px, 20vw, 168px);
+    --action-size: clamp(52px, 8vw, 68px);
+  }
+  .dpad {
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .actions {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .fn {
+    position: absolute;
+    bottom: 4px;
+    left: 50%;
+    transform: translateX(-50%);
+  }
 }
-.touch-controls.never {
-  display: none !important;
-}
-/* auto:触屏设备或窄屏时显示 */
-@media (pointer: coarse), (max-width: 640px) {
-  .touch-controls.auto {
-    display: flex;
+@media (pointer: coarse) and (orientation: portrait) {
+  .touch-controls:not(.never) {
+    position: relative;
+    inset: auto;
+    height: clamp(216px, 36dvh, 300px);
+    --pad-size: clamp(132px, 38vw, 180px);
+    --action-size: clamp(52px, 15vw, 72px);
+  }
+  .dpad {
+    top: auto;
+    bottom: 12px;
+    transform: none;
+  }
+  .actions {
+    top: auto;
+    bottom: 12px;
+    transform: none;
+  }
+  .fn {
+    top: 0;
+    bottom: auto;
+    left: 0;
+    right: 0;
+    transform: none;
+    justify-content: space-between;
+    padding-inline: calc(8px + (var(--pad-size) - 80px) / 2);
   }
 }
 
 /* ===== 方向区:3×3 网格摆出十字,中心+四臂 ===== */
 .dpad {
-  position: relative;
   flex: 0 0 auto;
-  width: clamp(120px, 38vw, 168px);
-  height: clamp(120px, 38vw, 168px);
+  width: var(--pad-size);
+  height: var(--pad-size);
   pointer-events: auto;
   touch-action: none;
 }
@@ -265,19 +298,18 @@ function onBtnUp(e: PointerEvent, pad: PadButton) {
 .fn {
   display: flex;
   gap: clamp(10px, 3vw, 16px);
-  margin-bottom: clamp(6px, 2vw, 12px);
   pointer-events: none;
 }
 .fkey {
   pointer-events: auto;
   touch-action: none;
   border: none;
-  width: clamp(60px, 17vw, 84px);
-  height: clamp(26px, 7vw, 30px);
+  width: 80px;
+  height: 44px;
   border-radius: 15px;
   background: rgba(58, 58, 58, 0.85);
   color: #eee;
-  font-size: clamp(10px, 2.8vw, 12px);
+  font-size: 12px;
 }
 .fkey:active {
   background: rgba(90, 90, 90, 0.95);
@@ -299,7 +331,7 @@ function onBtnUp(e: PointerEvent, pad: PadButton) {
   pointer-events: none;
 }
 .col-b {
-  margin-bottom: clamp(22px, 6vw, 40px);
+  margin-bottom: 24px;
 }
 .akey {
   pointer-events: auto;
@@ -311,16 +343,16 @@ function onBtnUp(e: PointerEvent, pad: PadButton) {
   filter: brightness(1.3);
 }
 .ab {
-  width: clamp(56px, 15.5vw, 72px);
-  height: clamp(56px, 15.5vw, 72px);
+  width: var(--action-size);
+  height: var(--action-size);
   border-radius: 50%;
   background: #c0392b;
   font-size: clamp(18px, 5vw, 22px);
   font-weight: 700;
 }
 .turbo {
-  width: clamp(40px, 11vw, 52px);
-  height: clamp(40px, 11vw, 52px);
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   background: #d98324;
   font-size: clamp(11px, 3vw, 13px);

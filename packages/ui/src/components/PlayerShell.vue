@@ -42,7 +42,7 @@ const props = withDefaults(
     toolbarMode: 'app',
     storageKey: 'nes:lastRom',
     openLoadingLabel: '载入中...',
-    footerHideOnTouch: false,
+    footerHideOnTouch: true,
     enableBackExit: false,
     onExit: undefined,
   },
@@ -456,6 +456,7 @@ textarea,
 <style scoped>
 .app {
   height: 100%;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   position: relative;
@@ -469,6 +470,7 @@ textarea,
   border-radius: 0;
 }
 .toolbar {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -611,6 +613,7 @@ textarea,
   position: relative;
 }
 .hint {
+  pointer-events: none;
   position: absolute;
   bottom: 12px;
   color: #888;
@@ -640,6 +643,30 @@ textarea,
 .toast-leave-to {
   opacity: 0;
 }
+@media (pointer: fine) {
+  .toolbar {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 500;
+  }
+  .stage {
+    padding: 68px 16px;
+  }
+  :deep(.footer) {
+    position: absolute;
+    inset: auto 0 0;
+  }
+}
+@media (pointer: coarse) {
+  .stage {
+    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
+  }
+  .hint {
+    top: 16px;
+    bottom: auto;
+    margin: 0;
+  }
+}
 @media (orientation: landscape) and (max-height: 540px) {
   .toolbar-web .toolbar {
     padding: 4px 8px;
@@ -658,9 +685,6 @@ textarea,
   }
   .toolbar-web .btn kbd {
     display: none;
-  }
-  .toolbar-web .stage {
-    padding: 0;
   }
   .toolbar-web .hint {
     bottom: 4px;
