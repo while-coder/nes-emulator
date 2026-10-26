@@ -152,12 +152,12 @@ useRemoteNav({
 .rs-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 200;
+  z-index: var(--sui-z-dropdown);
   background: transparent;
 }
 .rs-popup {
   position: fixed;
-  z-index: 201;
+  z-index: calc(var(--sui-z-dropdown) + 1);
   display: flex;
   flex-direction: column;
   padding: 4px;

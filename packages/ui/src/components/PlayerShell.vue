@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { computed, onBeforeUnmount, ref, watchEffect } from 'vue'
 import {
   isTauri,
@@ -10,8 +11,6 @@ import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 import { useAutoHideToolbar } from '../composables/useAutoHideToolbar'
 import { useFullscreen } from '../composables/useFullscreen'
 import NesScreen from './NesScreen.vue'
-import RomStorePanel from './RomStorePanel.vue'
-import SaveStatePanel from './SaveStatePanel.vue'
 import SettingsModal from './SettingsModal.vue'
 import ShortcutsPanel from './ShortcutsPanel.vue'
 import ToolbarMenu from './ToolbarMenu.vue'
@@ -50,22 +49,27 @@ const props = withDefaults(
 
 const screen = ref<InstanceType<typeof NesScreen> | null>(null)
 const appRef = ref<HTMLElement | null>(null)
-const { isFullscreen, usePseudo, toggle: toggleFullscreen } = useFullscreen(appRef)
+// 全屏覆盖整个文档，使 ui-kit 和遥控下拉挂到 body 的弹层仍可显示。
+const fullscreenRoot = computed(() => appRef.value?.ownerDocument.documentElement ?? null)
+const { isFullscreen, usePseudo, toggle: toggleFullscreen } = useFullscreen(fullscreenRoot)
 const romName = ref<string | null>(null)
 const romKey = ref<string | null>(null)
 const audioOn = ref(true)
 const loading = ref(false)
 const paused = ref(false)
 const settingsOpen = ref(false)
-const storeOpen = ref(false)
-const savesOpen = ref(false)
+const settingsTab = ref<'library' | 'saves' | 'keys' | 'display' | 'audio' | 'misc'>('library')
+function openSettings(tab: typeof settingsTab.value) {
+  settingsTab.value = tab
+  settingsOpen.value = true
+}
 const helpOpen = ref(false)
 const exitHintVisible = ref(false)
 let exitArmedAt = 0
 let exitHintTimer: ReturnType<typeof setTimeout> | null = null
 
 const inputLocked = computed(
-  () => storeOpen.value || settingsOpen.value || savesOpen.value || helpOpen.value,
+  () => settingsOpen.value || helpOpen.value,
 )
 
 const toolbarRef = ref<HTMLElement | null>(null)
@@ -173,9 +177,9 @@ function onSystemAction(action: string) {
   if (action === 'toggle-pause') {
     if (romName.value) togglePause()
   } else if (action === 'open-library') {
-    storeOpen.value = true
+    openSettings('library')
   } else if (action === 'open-saves') {
-    savesOpen.value = true
+    openSettings('saves')
   } else if (action === 'back') {
     if (props.enableBackExit) consumeBack()
   } else if (action === 'toggle-fullscreen') {
@@ -191,14 +195,6 @@ function handleBack(): BackResult {
   }
   if (settingsOpen.value) {
     settingsOpen.value = false
-    return 'handled'
-  }
-  if (savesOpen.value) {
-    savesOpen.value = false
-    return 'handled'
-  }
-  if (storeOpen.value) {
-    storeOpen.value = false
     return 'handled'
   }
   if (romName.value) {
@@ -247,14 +243,14 @@ onBeforeUnmount(() => {
     :class="shellClasses"
   >
     <div v-if="isPlaying" class="toolbar-hotzone" @pointerup="toggleToolbar" />
-    <button
+    <SButton
       v-if="isPlaying && !toolbarVisible"
       class="toolbar-handle"
       title="显示菜单栏"
       @pointerup="toggleToolbar"
     >
       ☰
-    </button>
+    </SButton>
     <header
       ref="toolbarRef"
       class="toolbar"
@@ -264,124 +260,128 @@ onBeforeUnmount(() => {
       <div class="spacer" />
 
       <template v-if="toolbarMode === 'web'">
-        <button class="btn primary" :disabled="loading" @click="openRom">
+        <SButton class="btn primary" :disabled="loading" @click="openRom">
           {{ loading ? openLoadingLabel : '打开 ROM' }}
-        </button>
-        <button
+        </SButton>
+        <SButton
           class="btn icon"
           :disabled="!romName"
           :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
           @click="togglePause"
         >
           {{ paused ? '▶' : '⏸' }}
-        </button>
-        <button
+        </SButton>
+        <SButton
           class="btn icon"
           @click="toggleFullscreen"
           :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
         >
           {{ isFullscreen ? '⛗' : '⛶' }}
-        </button>
+        </SButton>
         <div class="secondary">
-          <button class="btn" @click="storeOpen = true">
+          <SButton class="btn" @click="openSettings('library')">
             {{ libraryLabel }} <kbd>{{ modLabel }}+G</kbd>
-          </button>
+          </SButton>
           <ToolbarMenu label="存档">
-            <button class="menu-item" :disabled="!romName" @click="saveState">
+            <SButton class="menu-item" :disabled="!romName" @click="saveState">
               快速存档 <kbd>{{ modLabel }}+S</kbd>
-            </button>
-            <button class="menu-item" :disabled="!romName" @click="loadState">
+            </SButton>
+            <SButton class="menu-item" :disabled="!romName" @click="loadState">
               快速读档 <kbd>{{ modLabel }}+L</kbd>
-            </button>
-            <button class="menu-item" :disabled="!romName" @click="newSave">
+            </SButton>
+            <SButton class="menu-item" :disabled="!romName" @click="newSave">
               新建存档 <kbd>{{ modLabel }}+N</kbd>
-            </button>
-            <button class="menu-item" @click="savesOpen = true">
+            </SButton>
+            <SButton class="menu-item" @click="openSettings('saves')">
               存档列表 <kbd>{{ modLabel }}+A</kbd>
-            </button>
+            </SButton>
           </ToolbarMenu>
           <span class="divider" />
-          <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
-          <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
+          <SButton class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</SButton>
+          <SButton class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</SButton>
           <span class="divider" />
-          <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
+          <SButton class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
             {{ audioOn ? '🔊' : '🔇' }}
-          </button>
-          <button class="btn icon" title="设置" @click="settingsOpen = true">⚙</button>
+          </SButton>
+          <SButton class="btn icon" title="设置" @click="settingsOpen = true">⚙</SButton>
         </div>
         <ToolbarMenu label="☰" class="more-menu">
-          <button class="menu-item" @click="storeOpen = true">
+          <SButton class="menu-item" @click="openSettings('library')">
             {{ libraryLabel }} <kbd>{{ modLabel }}+G</kbd>
-          </button>
-          <button class="menu-item" :disabled="!romName" @click="saveState">
+          </SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="saveState">
             快速存档 <kbd>{{ modLabel }}+S</kbd>
-          </button>
-          <button class="menu-item" :disabled="!romName" @click="loadState">
+          </SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="loadState">
             快速读档 <kbd>{{ modLabel }}+L</kbd>
-          </button>
-          <button class="menu-item" :disabled="!romName" @click="newSave">
+          </SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="newSave">
             新建存档 <kbd>{{ modLabel }}+N</kbd>
-          </button>
-          <button class="menu-item" @click="savesOpen = true">
+          </SButton>
+          <SButton class="menu-item" @click="openSettings('saves')">
             存档列表 <kbd>{{ modLabel }}+A</kbd>
-          </button>
-          <button class="menu-item" :disabled="!romName" @click="reset">复位</button>
-          <button class="menu-item" :disabled="!romName" @click="stopRom">中止</button>
-          <button class="menu-item" @click="toggleAudio">
+          </SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="reset">复位</SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="stopRom">中止</SButton>
+          <SButton class="menu-item" @click="toggleAudio">
             {{ audioOn ? '音频:开' : '音频:关' }}
-          </button>
-          <button class="menu-item" @click="settingsOpen = true">设置</button>
+          </SButton>
+          <SButton class="menu-item" @click="settingsOpen = true">设置</SButton>
         </ToolbarMenu>
       </template>
 
       <template v-else>
-        <button class="btn" :disabled="loading" @click="openRom">
+        <SButton class="btn" :disabled="loading" @click="openRom">
           {{ loading ? openLoadingLabel : '打开 ROM' }}
-        </button>
-        <button class="btn" @click="storeOpen = true">
+        </SButton>
+        <SButton class="btn" @click="openSettings('library')">
           {{ libraryLabel }} <kbd>{{ modLabel }}+G</kbd>
-        </button>
+        </SButton>
         <ToolbarMenu label="存档">
-          <button class="menu-item" :disabled="!romName" @click="saveState">
+          <SButton class="menu-item" :disabled="!romName" @click="saveState">
             快速存档 <kbd>{{ modLabel }}+S</kbd>
-          </button>
-          <button class="menu-item" :disabled="!romName" @click="loadState">
+          </SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="loadState">
             快速读档 <kbd>{{ modLabel }}+L</kbd>
-          </button>
-          <button class="menu-item" :disabled="!romName" @click="newSave">
+          </SButton>
+          <SButton class="menu-item" :disabled="!romName" @click="newSave">
             新建存档 <kbd>{{ modLabel }}+N</kbd>
-          </button>
-          <button class="menu-item" @click="savesOpen = true">
+          </SButton>
+          <SButton class="menu-item" @click="openSettings('saves')">
             存档列表 <kbd>{{ modLabel }}+A</kbd>
-          </button>
+          </SButton>
         </ToolbarMenu>
-        <button
+        <SButton
           class="btn icon"
           :disabled="!romName"
           :title="(paused ? '继续' : '暂停') + ' (' + modLabel + '+P)'"
           @click="togglePause"
         >
           {{ paused ? '▶' : '⏸' }}
-        </button>
-        <button class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</button>
-        <button class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</button>
-        <button
+        </SButton>
+        <SButton class="btn icon" :disabled="!romName" @click="stopRom" title="中止">⏹</SButton>
+        <SButton class="btn icon" :disabled="!romName" @click="reset" title="复位">↻</SButton>
+        <SButton
           class="btn icon"
           @click="toggleFullscreen"
           :title="`${isFullscreen ? '退出全屏' : '全屏'} (${modLabel}+F)`"
         >
           {{ isFullscreen ? '⛗' : '⛶' }}
-        </button>
-        <button class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
+        </SButton>
+        <SButton class="btn icon" :title="audioOn ? '音频开' : '音频关'" @click="toggleAudio">
           {{ audioOn ? '🔊' : '🔇' }}
-        </button>
-        <button class="btn icon" title="设置" @click="settingsOpen = true">⚙</button>
+        </SButton>
+        <SButton class="btn icon" title="设置" @click="settingsOpen = true">⚙</SButton>
       </template>
     </header>
 
-    <SettingsModal v-model:open="settingsOpen" />
-    <RomStorePanel v-model:open="storeOpen" @load="(p) => loadRomBytes(p.name, p.bytes, p.key)" />
-    <SaveStatePanel v-model:open="savesOpen" :current-rom-key="romKey" @load="onLoadSave" />
+    <SettingsModal
+      v-model:open="settingsOpen"
+      v-model:tab="settingsTab"
+      :current-rom-key="romKey"
+      @load-rom="(p) => loadRomBytes(p.name, p.bytes, p.key)"
+      @load-save="onLoadSave"
+    />
     <ShortcutsPanel v-model:open="helpOpen" :modifier="modKey" />
 
     <main class="stage">

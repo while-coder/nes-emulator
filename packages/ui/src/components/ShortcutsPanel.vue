@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SModal from '@qingfeng346/ui-kit/components/SModal.vue'
+import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 /**
  * 快捷键速查面板:集中展示应用级快捷键、手柄空闲键与各玩家的游戏按键映射。
  *
@@ -6,11 +8,14 @@
  * 里(不可配置),故此处静态列出;改动那边的键位时需同步本表。游戏按键则从 settings
  * 实时读取,改键后自动同步。
  */
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { PAD_BUTTON_LIST, PLAYER_LABELS, codeLabel, settings } from '../emulator/settings'
 
 const props = defineProps<{ open: boolean; modifier?: 'ctrl' | 'shift' }>()
 const emit = defineEmits<{ 'update:open': [boolean] }>()
+
+const panelRef = ref<HTMLElement | null>(null)
+useRemoteNav({ container: panelRef, active: computed(() => navEnabled.value && props.open), onBack: close, autoFocus: true, priority: 10 })
 
 function close() {
   emit('update:open', false)
@@ -39,13 +44,8 @@ const GAMEPAD_SHORTCUTS = [
 </script>
 
 <template>
-  <div v-if="open" class="overlay" tabindex="-1" @click.self="close" @keydown="onOverlayKey">
-    <div class="panel" role="dialog" aria-label="快捷键">
-      <header class="panel-head">
-        <h2>快捷键</h2>
-        <button class="x" @click="close">✕</button>
-      </header>
-
+  <SModal :show="open" title="快捷键" width="sm" class="player-modal" :close-on-esc="false" :body-scrollable="false" @update:show="$emit('update:open', $event)" @keydown="onOverlayKey">
+    <div ref="panelRef" class="shortcuts-content">
       <section class="body">
         <h3 class="group">键盘快捷键</h3>
         <div v-for="s in KEYBOARD_SHORTCUTS" :key="s.keys" class="row">
@@ -70,50 +70,14 @@ const GAMEPAD_SHORTCUTS = [
         <p class="tip">游戏按键可在「设置 → 按键」中修改。</p>
       </section>
     </div>
-  </div>
+  </SModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-.panel {
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 64px);
+.shortcuts-content {
   display: flex;
   flex-direction: column;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 10px;
-  overflow: hidden;
-}
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #3a3a3a;
-}
-.panel-head h2 {
-  margin: 0;
-  font-size: 16px;
-}
-.x {
-  border: none;
-  background: transparent;
-  color: #aaa;
-  font-size: 16px;
-  cursor: pointer;
-}
-.x:hover {
-  color: #fff;
+  min-height: 0;
 }
 .body {
   padding: 12px 16px 16px;

@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SInput from '@qingfeng346/ui-kit/components/input/SInput.vue'
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import type { SaveState } from '../emulator/runner'
 import type { DownloadProgress } from '../store/romDownloader'
@@ -10,7 +12,6 @@ import {
   saveKindOf,
   type SaveStateRecord,
 } from '../store/saveState'
-import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 
 // 读档时交回父组件应用到引擎的载荷:带 bytes 表示需先载入对应游戏,
 // 不带 bytes 表示当前已是该游戏、直接套用状态即可。
@@ -40,17 +41,7 @@ const progress = ref<DownloadProgress | null>(null)
 const editingKey = ref<string | null>(null)
 const editingText = ref('')
 
-// Android TV 遥控器:面板内焦点导航(搜索框/筛选/卡片读档·删除·重命名按钮/关闭)。
-const panelRef = ref<HTMLElement | null>(null)
-useRemoteNav({
-  container: panelRef,
-  active: computed(() => navEnabled.value && open.value),
-  onBack: () => {
-    if (busyKey.value === null) open.value = false
-  },
-  autoFocus: true,
-  priority: 10,
-})
+defineExpose({ busyKey })
 
 watch(
   open,
@@ -201,18 +192,9 @@ function formatError(err: unknown): string {
 </script>
 
 <template>
-  <div v-if="open" class="store-backdrop" @click.self="busyKey === null && (open = false)">
-    <section ref="panelRef" class="store-panel" role="dialog" aria-modal="true" aria-labelledby="save-panel-title">
-      <header class="store-header">
-        <div>
-          <h2 id="save-panel-title">存档列表</h2>
-          <p>{{ records.length }} 条存档 · 共 {{ games.length }} 个游戏</p>
-        </div>
-        <button class="close-btn" :disabled="busyKey !== null" aria-label="关闭" @click="open = false">×</button>
-      </header>
-
+  <section class="store-panel">
       <div class="store-tools">
-        <input v-model="query" class="search" type="search" placeholder="搜索存档名、游戏名" />
+        <SInput v-model:value="query" class="search" type="search" placeholder="搜索存档名、游戏名" />
         <select v-model="filter" class="select">
           <option v-if="currentRomKey" value="current">当前游戏</option>
           <option value="all">全部游戏</option>
@@ -248,7 +230,7 @@ function formatError(err: unknown): string {
               <h3 v-else :title="saveLabel(record)" @click="startEdit(record)">
                 {{ saveLabel(record) }}
               </h3>
-              <button
+              <SButton
                 v-if="editingKey !== record.key"
                 class="icon-btn"
                 title="重命名"
@@ -256,7 +238,7 @@ function formatError(err: unknown): string {
                 @click="startEdit(record)"
               >
                 ✎
-              </button>
+              </SButton>
             </div>
             <p class="meta">{{ record.name }}</p>
             <p class="meta time">{{ formatTime(record.savedAt) }}</p>
@@ -264,12 +246,12 @@ function formatError(err: unknown): string {
 
           <div class="save-actions">
             <span v-if="busyKey === record.key" class="progress">{{ progressLabel() }}</span>
-            <button class="btn primary" :disabled="busyKey !== null" @click="loadRecord(record)">
+            <SButton class="btn primary" :disabled="busyKey !== null" @click="loadRecord(record)">
               读档
-            </button>
-            <button class="btn" :disabled="busyKey !== null" @click="removeRecord(record)">
+            </SButton>
+            <SButton class="btn" :disabled="busyKey !== null" @click="removeRecord(record)">
               删除
-            </button>
+            </SButton>
           </div>
         </article>
 
@@ -277,69 +259,19 @@ function formatError(err: unknown): string {
           {{ records.length === 0 ? '还没有任何存档' : '没有匹配的存档' }}
         </p>
       </div>
-    </section>
-  </div>
+  </section>
 </template>
 
 <style scoped>
-.store-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  background: rgba(0, 0, 0, 0.58);
-}
 .store-panel {
-  width: min(720px, 100%);
-  max-height: min(720px, 100%);
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: #202328;
   color: #ececec;
-  border: 1px solid #383d45;
-  border-radius: 8px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
-}
-.store-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border-bottom: 1px solid #343941;
-}
-.store-header h2 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.2;
-}
-.store-header p {
-  margin: 5px 0 0;
-  color: #9da5b3;
-  font-size: 12px;
-}
-.close-btn {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  border: none;
-  border-radius: 6px;
-  background: #333840;
-  color: #eee;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-}
-.close-btn:hover {
-  background: #454c56;
-}
-.close-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 .store-tools {
   display: grid;
@@ -511,10 +443,6 @@ function formatError(err: unknown): string {
 }
 
 @media (max-width: 720px) {
-  .store-backdrop {
-    align-items: stretch;
-    padding: 10px;
-  }
   .store-tools {
     grid-template-columns: 1fr;
   }
@@ -536,30 +464,6 @@ function formatError(err: unknown): string {
 
 /* 手机横屏:压缩 chrome、卡片维持单行,把垂直空间让给列表。同 RomStorePanel。 */
 @media (orientation: landscape) and (max-height: 540px) {
-  .store-backdrop {
-    padding: 0;
-  }
-  .store-panel {
-    max-height: 100%;
-    width: 100%;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-  }
-  .store-header {
-    padding: 6px 12px;
-  }
-  .store-header h2 {
-    font-size: 14px;
-  }
-  .store-header p {
-    display: none;
-  }
-  .close-btn {
-    width: 28px;
-    height: 28px;
-    font-size: 20px;
-  }
   .store-tools {
     padding: 6px 12px;
     gap: 6px;

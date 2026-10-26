@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { settings } from '../emulator/settings'
 import { navEnabled, hasGamepad } from '../composables/useRemoteNav'
 import { useInputMonitor } from '../composables/useInputMonitor'
@@ -23,7 +24,7 @@ const { label: inputLabel } = useInputMonitor()
 
 <template>
   <footer class="footer" :class="{ 'hide-on-touch': hideOnTouch }">
-    <button class="link-btn" @click="$emit('help')">查看所有快捷键</button>
+    <SButton class="link-btn" @click="$emit('help')">查看所有快捷键</SButton>
     <span v-if="navEnabled && !hasGamepad" class="tv-tip">游戏操作需连接手柄;遥控器用于菜单导航,返回键退出</span>
     <span v-if="settings.misc.showInputDebug" class="input-debug">
       按键 <b>{{ inputLabel || '—' }}</b>

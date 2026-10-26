@@ -321,7 +321,12 @@ function detectSystemPadButtons(pads: (Gamepad | null)[]) {
   sysPadPrev.rb = rb
 }
 
-// 锁定输入瞬间释放所有已按下的游戏按钮与连发,避免卡键。
+// 切到后台时释放游戏输入。
+function onVisibilityChange() {
+  if (document.hidden) releaseAllGameInput()
+}
+
+// 锁定或失焦时释放所有已按下的游戏按钮与连发。
 function releaseAllGameInput() {
   activeTurbo.clear()
   turboPressed.clear()
@@ -361,7 +366,7 @@ function autoBindGamepad() {
 function pollGamepads() {
   padRaf = requestAnimationFrame(pollGamepads)
   if (!runner) return
-  if (props.inputLocked) return // 模态接管手柄(库内导航自行轮询)
+  if (props.inputLocked || document.hidden) return // 模态或后台不向游戏送输入(库内导航自行轮询)
   const pads = navigator.getGamepads ? navigator.getGamepads() : []
   detectSystemPadButtons(pads)
   settings.players.forEach((p, pi) => {
@@ -395,6 +400,7 @@ function pollGamepads() {
 // 触屏虚拟手柄(TouchControls)回调:仅控制玩家1(单屏双人不现实)。
 // 首次按下顺带解锁音频(iOS 要求音频在用户手势内启动)。
 function onTouchPress(pad: number) {
+  if (props.inputLocked || document.hidden) return
   runner?.resumeAudio()
   pressPad(0, pad)
 }
@@ -463,6 +469,8 @@ onMounted(() => {
   canvas.blur()
   window.addEventListener('keydown', onKeyDown)
   window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('blur', releaseAllGameInput)
+  document.addEventListener('visibilitychange', onVisibilityChange)
   window.addEventListener('gamepadconnected', autoBindGamepad)
   autoBindGamepad() // 进入时已连手柄则立即绑定
   padRaf = requestAnimationFrame(pollGamepads)
@@ -474,6 +482,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
+  window.removeEventListener('blur', releaseAllGameInput)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('gamepadconnected', autoBindGamepad)
   if (padRaf) cancelAnimationFrame(padRaf)
   padRaf = 0
@@ -570,7 +580,7 @@ defineExpose({
     </div>
 
     <!-- 触屏虚拟手柄(经典分离式,支持斜向与多点触控) -->
-    <TouchControls @press="onTouchPress" @release="onTouchRelease" />
+    <TouchControls :disabled="inputLocked" @press="onTouchPress" @release="onTouchRelease" />
   </div>
 </template>
 
@@ -603,11 +613,7 @@ defineExpose({
 }
 @media (pointer: coarse) and (orientation: portrait) {
   .screen-wrap:not(.without-controls) {
-    grid-template-rows: minmax(0, 1fr) auto;
-    gap: 12px;
-  }
-  .display-area {
-    align-items: flex-start;
+    grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 }
 /* 画面盒子尺寸由 JS 按宽高比/整数倍算出 */

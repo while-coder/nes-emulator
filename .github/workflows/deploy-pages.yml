@@ -41,7 +41,7 @@ jobs:
           node-version: 20
           cache: pnpm
 
-      - run: pnpm install --frozen-lockfile
+      - uses: while-coder/workflows/.github/actions/install-pnpm-dependencies@main
       - run: pnpm --filter @nes-emulator/pwa run build
 
       - uses: actions/configure-pages@v5

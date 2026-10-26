@@ -17,7 +17,8 @@
     "release": "node scripts/release.cjs",
     "ios:init": "pnpm --filter @nes-emulator/app run ios:init",
     "sync:versions": "node scripts/sync-versions.cjs",
-    "sync:icons": "node scripts/sync-icons.cjs"
+    "sync:icons": "node scripts/sync-icons.cjs",
+    "debug:app": "cargo build --manifest-path apps/app/src-tauri/Cargo.toml"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

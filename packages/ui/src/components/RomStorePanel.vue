@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import SInput from '@qingfeng346/ui-kit/components/input/SInput.vue'
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
+import { computed, ref, watch } from 'vue'
 import { downloadRom, validateRomBytes, type DownloadProgress } from '../store/romDownloader'
 import {
   emptyRomCatalog,
@@ -18,10 +20,7 @@ import {
   touchCachedRom,
   type CachedRom,
 } from '../store/romLibrary'
-import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 import RemoteSelect from './RemoteSelect.vue'
-
-type StoreTab = 'downloaded' | 'online'
 
 const open = defineModel<boolean>('open', { default: false })
 const emit = defineEmits<{
@@ -31,7 +30,7 @@ const emit = defineEmits<{
 const catalog = ref<RomCatalog>(emptyRomCatalog())
 const query = ref('')
 const genre = ref('')
-const activeTab = ref<StoreTab>('downloaded')
+const downloadedOnly = ref(false)
 const cachedRoms = ref<CachedRom[]>([])
 const busyKey = ref<string | null>(null)
 const catalogLoading = ref(false)
@@ -82,66 +81,37 @@ function sortList<T>(
 }
 
 const cachedKeys = computed(() => new Set(cachedRoms.value.map((rom) => rom.key)))
-const genres = computed(() => listGenres(catalog.value.games))
+// 合并在线目录和缓存，缓存中已不在目录里的游戏仍可离线启动。
+const libraryGames = computed(() => {
+  const games = new Map(catalog.value.games.map((game) => [romKey(game), game]))
+  for (const rom of cachedRoms.value) {
+    if (!games.has(rom.key)) {
+      games.set(rom.key, {
+        name: rom.name, genre: rom.genre, publisher: rom.publisher,
+        mapper: rom.mapper, tags: rom.tags, file_size: rom.size,
+        sha256: rom.key, download_url: '',
+      })
+    }
+  }
+  return [...games.values()]
+})
+const genres = computed(() => listGenres(libraryGames.value))
 const genreOptions = computed(() => [
   { value: '', label: '全部类型' },
   ...genres.value.map((item) => ({ value: item, label: item })),
 ])
 const matchedGames = computed(() =>
-  searchRoms(catalog.value.games, query.value, genre.value, false, cachedKeys.value),
+  searchRoms(libraryGames.value, query.value, genre.value, downloadedOnly.value, cachedKeys.value),
 )
-
-const downloadedGames = computed(() => {
-  const q = query.value.trim().toLocaleLowerCase('zh-Hans-CN')
-  return cachedRoms.value.filter((rom) => {
-    if (genre.value && rom.genre !== genre.value) return false
-    if (!q) return true
-    return [rom.name, rom.genre, rom.publisher, rom.mapper, ...(rom.tags ?? [])]
-      .filter((value) => value !== undefined && value !== null)
-      .join(' ')
-      .toLocaleLowerCase('zh-Hans-CN')
-      .includes(q)
-  })
-})
-
-// 排序后的完整列表
 const sortedMatched = computed(() =>
-  sortList(
-    matchedGames.value,
-    (g) => g.name,
-    (g) => g.file_size ?? 0,
-    (g) => g.publisher ?? '',
-  ),
+  sortList(matchedGames.value, (g) => g.name, (g) => g.file_size ?? 0, (g) => g.publisher ?? ''),
 )
-const sortedDownloaded = computed(() =>
-  sortList(
-    downloadedGames.value,
-    (r) => r.name,
-    (r) => r.size ?? 0,
-    (r) => r.publisher ?? '',
-  ),
-)
-
-// 当前标签页的完整列表，分页基于它计算
-const activeList = computed(() =>
-  activeTab.value === 'downloaded' ? sortedDownloaded.value : sortedMatched.value,
-)
-const totalCount = computed(() => activeList.value.length)
+const totalCount = computed(() => sortedMatched.value.length)
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / PAGE_SIZE)))
 const pageStart = computed(() => (page.value - 1) * PAGE_SIZE)
 const pageEnd = computed(() => Math.min(pageStart.value + PAGE_SIZE, totalCount.value))
-
-const visibleGames = computed(() =>
-  sortedMatched.value.slice(pageStart.value, pageStart.value + PAGE_SIZE),
-)
-const visibleDownloaded = computed(() =>
-  sortedDownloaded.value.slice(pageStart.value, pageStart.value + PAGE_SIZE),
-)
-
-// 搜索、筛选、排序或切换标签时回到第一页
-watch([query, genre, sort, activeTab], () => {
-  page.value = 1
-})
+const visibleGames = computed(() => sortedMatched.value.slice(pageStart.value, pageStart.value + PAGE_SIZE))
+watch([query, genre, sort, downloadedOnly], () => { page.value = 1 })
 
 // 列表变短（例如删除后）时收敛当前页，避免停在空页
 watch(totalPages, (pages) => {
@@ -152,62 +122,8 @@ function goPage(target: number) {
   page.value = Math.min(Math.max(1, target), totalPages.value)
 }
 
-// Android TV 遥控器:面板内焦点几何导航(标签 / 搜索框 / 筛选 / 卡片按钮 / 翻页)。
-// 与 SaveStatePanel 共用 useRemoteNav,priority=10 让面板打开时夺走按键;BACK 关面板。
-// 不用 autoFocus:默认首焦点是右上角关闭键,几何寻路从那儿走不到左侧标签;
-// 改为打开时手动把焦点落在当前标签按钮,DPad 左右即可切换标签。
-const panelRef = ref<HTMLElement | null>(null)
-const downloadedTabRef = ref<HTMLButtonElement | null>(null)
-const onlineTabRef = ref<HTMLButtonElement | null>(null)
-const { focusElement } = useRemoteNav({
-  container: panelRef,
-  active: computed(() => navEnabled.value && open.value),
-  onBack: () => {
-    if (busyKey.value === null) open.value = false
-  },
-  autoFocus: false,
-  priority: 10,
-})
-
-// 返回键兜底:useRemoteNav 仅在 navEnabled(已按方向键/连手柄)时活跃;
-// 某些 TV 遥控器 BACK 不触发 navMode,需要面板自己监听 Escape/Backspace/GoBack 以保证可关。
-function onPanelBackKey(e: KeyboardEvent): void {
-  if (!open.value || busyKey.value !== null) return
-  const k = e.key
-  if (k === 'Escape' || k === 'GoBack' || k === 'BrowserBack') {
-    e.preventDefault()
-    open.value = false
-    return
-  }
-  if (k === 'Backspace') {
-    // 文本框里退格交还原生编辑(搜索框删字符)
-    const tag = (e.target as HTMLElement | null)?.tagName
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return
-    e.preventDefault()
-    open.value = false
-  }
-}
-
-watch(
-  open,
-  async (value) => {
-    if (!value) {
-      window.removeEventListener('keydown', onPanelBackKey)
-      return
-    }
-    window.addEventListener('keydown', onPanelBackKey)
-    void prepareStore()
-    // 等 v-if 渲染面板节点,再把焦点落到当前标签按钮上。
-    await nextTick()
-    requestAnimationFrame(() => {
-      const tab = activeTab.value === 'downloaded' ? downloadedTabRef.value : onlineTabRef.value
-      if (tab) focusElement(tab)
-    })
-  },
-  { immediate: true },
-)
-
-onBeforeUnmount(() => window.removeEventListener('keydown', onPanelBackKey))
+watch(open, (value) => { if (value) void prepareStore() }, { immediate: true })
+defineExpose({ busyKey })
 
 async function prepareStore() {
   await Promise.all([refreshCatalog(), refreshCached()])
@@ -243,13 +159,14 @@ async function play(game: RomEntry) {
     const cached = await getCachedRom(key)
     if (cached) {
       try {
-        await validateRomBytes(game, cached.bytes)
+        if (game.download_url) await validateRomBytes(game, cached.bytes)
         bytes = cached.bytes
       } catch {
         await deleteCachedRom(key)
       }
     }
     if (!bytes) {
+      if (!game.download_url) throw new Error('该 ROM 缓存已失效，请重新添加游戏')
       bytes = await downloadAndCache(game, key)
     }
     await touchCachedRom(key)
@@ -287,27 +204,6 @@ async function downloadAndCache(game: RomEntry, key = romKey(game)): Promise<Uin
   })
   await saveCachedRom(game, bytes)
   return bytes
-}
-
-async function playCached(rom: CachedRom) {
-  if (busyKey.value !== null) return
-  busyKey.value = rom.key
-  error.value = null
-  try {
-    const cached = await getCachedRom(rom.key)
-    if (!cached) {
-      await refreshCached()
-      throw new Error('该 ROM 缓存已失效，请到在线库重新下载')
-    }
-    await touchCachedRom(rom.key)
-    await refreshCached()
-    emit('load', { name: cached.name, bytes: cached.bytes, key: rom.key })
-    open.value = false
-  } catch (err) {
-    error.value = formatError(err)
-  } finally {
-    busyKey.value = null
-  }
 }
 
 async function removeCachedByKey(key: string) {
@@ -369,115 +265,26 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
-function cachedMetaLine(rom: CachedRom): string {
-  const parts = [
-    rom.genre,
-    rom.publisher,
-    rom.mapper !== undefined ? `Mapper ${rom.mapper}` : null,
-    rom.size ? formatSize(rom.size) : null,
-  ]
-  return parts.filter(Boolean).join(' · ')
-}
-
-function lastPlayedLabel(rom: CachedRom): string {
-  if (!rom.lastPlayedAt) return '最后使用：未使用'
-  return `最后使用：${formatTime(rom.lastPlayedAt)}`
-}
-
-function formatTime(timestamp: number): string {
-  const date = new Date(timestamp)
-  const pad = (value: number) => String(value).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
 function formatError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 </script>
 
 <template>
-  <div v-if="open" class="store-backdrop" @click.self="busyKey === null && (open = false)">
-    <section ref="panelRef" class="store-panel" role="dialog" aria-modal="true" aria-labelledby="rom-store-title">
-      <header class="store-header">
-        <div>
-          <h2 id="rom-store-title">ROM 库</h2>
-          <p>
-            {{ catalogLoading ? '读取目录中' : `${catalog.games.length} 个游戏` }}
-            · {{ catalog.captured_at ?? catalog.updated_at ?? 'Gitee 目录' }}
-          </p>
-        </div>
-        <button class="close-btn" :disabled="busyKey !== null" aria-label="关闭" @click="open = false">×</button>
-      </header>
-
-      <div class="store-tabs" role="tablist">
-        <button
-          ref="downloadedTabRef"
-          :class="['tab', activeTab === 'downloaded' ? 'active' : '']"
-          role="tab"
-          :aria-selected="activeTab === 'downloaded'"
-          @click="activeTab = 'downloaded'"
-        >
-          已下载 ({{ cachedRoms.length }})
-        </button>
-        <button
-          ref="onlineTabRef"
-          :class="['tab', activeTab === 'online' ? 'active' : '']"
-          role="tab"
-          :aria-selected="activeTab === 'online'"
-          @click="activeTab = 'online'"
-        >
-          在线库 ({{ catalog.games.length }})
-        </button>
-      </div>
-
+  <section class="store-panel">
       <div class="store-tools">
-        <input v-model="query" class="search" type="search" placeholder="搜索游戏、厂商、标签" />
+        <SInput v-model:value="query" class="search" type="search" placeholder="搜索游戏、厂商、标签" />
         <RemoteSelect v-model="genre" class="select" :options="genreOptions" />
         <RemoteSelect v-model="sort" class="select" :options="SORT_OPTIONS" />
+        <label class="check"><input v-model="downloadedOnly" type="checkbox" />已下载 ({{ cachedRoms.length }})</label>
       </div>
 
       <div class="store-summary">
-        <span v-if="activeTab === 'downloaded'">
-          已下载 {{ downloadedGames.length }} 个游戏{{ totalCount ? `，显示第 ${pageStart + 1}-${pageEnd} 个` : '' }}
-        </span>
-        <span v-else>{{ catalogLoading ? '正在同步目录' : `匹配 ${matchedGames.length} 个${totalCount ? `，显示第 ${pageStart + 1}-${pageEnd} 个` : ''}` }}</span>
+        <span>{{ catalogLoading ? '正在同步目录 · ' : '' }}匹配 {{ totalCount }} 个{{ totalCount ? `，显示第 ${pageStart + 1}-${pageEnd} 个` : '' }}</span>
         <span v-if="error" class="error">{{ error }}</span>
       </div>
 
-      <div v-if="activeTab === 'downloaded'" class="game-list">
-        <article
-          v-for="rom in visibleDownloaded"
-          :key="rom.key"
-          class="game-card"
-        >
-          <div class="game-main">
-            <div class="game-title-row">
-              <h3>{{ rom.name }}</h3>
-              <span class="cache-state cached">已下载</span>
-            </div>
-            <p class="meta">{{ cachedMetaLine(rom) }}</p>
-            <p class="meta played">{{ lastPlayedLabel(rom) }}</p>
-            <div v-if="rom.tags?.length" class="tags">
-              <span v-for="tag in rom.tags.slice(0, 4)" :key="tag">{{ tag }}</span>
-            </div>
-          </div>
-
-          <div class="game-actions">
-            <button class="btn primary" :disabled="busyKey !== null" @click="playCached(rom)">
-              {{ busyKey === rom.key ? '载入中' : '启动' }}
-            </button>
-            <button class="btn" :disabled="busyKey !== null" @click="removeCachedByKey(rom.key)">
-              删除
-            </button>
-          </div>
-        </article>
-
-        <p v-if="downloadedGames.length === 0" class="empty">
-          {{ cachedRoms.length === 0 ? '还没有下载任何 ROM，去在线库下载吧' : '没有匹配的 ROM' }}
-        </p>
-      </div>
-
-      <div v-else class="game-list">
+      <div class="game-list">
         <article
           v-for="game in visibleGames"
           :key="romKey(game)"
@@ -500,25 +307,25 @@ function formatError(err: unknown): string {
             <span v-if="busyKey === romKey(game) && progressLabel(game)" class="progress">
               {{ progressLabel(game) }}
             </span>
-            <button
+            <SButton
               v-if="!cachedKeys.has(romKey(game))"
               class="btn"
               :disabled="busyKey !== null"
               @click="downloadOnly(game)"
             >
               {{ downloadLabel(game) }}
-            </button>
-            <button class="btn primary" :disabled="busyKey !== null" @click="play(game)">
+            </SButton>
+            <SButton class="btn primary" :disabled="busyKey !== null" @click="play(game)">
               {{ playLabel(game) }}
-            </button>
-            <button
+            </SButton>
+            <SButton
               v-if="cachedKeys.has(romKey(game))"
               class="btn"
               :disabled="busyKey !== null"
               @click="removeCachedByKey(romKey(game))"
             >
               删除
-            </button>
+            </SButton>
           </div>
         </article>
 
@@ -526,97 +333,25 @@ function formatError(err: unknown): string {
       </div>
 
       <div v-if="totalPages > 1" class="store-pager">
-        <button class="pager-btn" :disabled="page <= 1" @click="goPage(1)">« 首页</button>
-        <button class="pager-btn" :disabled="page <= 1" @click="goPage(page - 1)">上一页</button>
+        <SButton class="pager-btn" :disabled="page <= 1" @click="goPage(1)">« 首页</SButton>
+        <SButton class="pager-btn" :disabled="page <= 1" @click="goPage(page - 1)">上一页</SButton>
         <span class="page-info">{{ page }} / {{ totalPages }}</span>
-        <button class="pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</button>
-        <button class="pager-btn" :disabled="page >= totalPages" @click="goPage(totalPages)">末页 »</button>
+        <SButton class="pager-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">下一页</SButton>
+        <SButton class="pager-btn" :disabled="page >= totalPages" @click="goPage(totalPages)">末页 »</SButton>
       </div>
-    </section>
-  </div>
+  </section>
 </template>
 
 <style scoped>
-.store-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 18px;
-  background: rgba(0, 0, 0, 0.58);
-}
 .store-panel {
-  width: min(1040px, 100%);
-  max-height: min(760px, 100%);
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: #202328;
   color: #ececec;
-  border: 1px solid #383d45;
-  border-radius: 8px;
-  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.42);
-}
-.store-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border-bottom: 1px solid #343941;
-}
-.store-header h2 {
-  margin: 0;
-  font-size: 18px;
-  line-height: 1.2;
-}
-.store-header p {
-  margin: 5px 0 0;
-  color: #9da5b3;
-  font-size: 12px;
-}
-.close-btn {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 auto;
-  border: none;
-  border-radius: 6px;
-  background: #333840;
-  color: #eee;
-  font-size: 24px;
-  line-height: 1;
-  cursor: pointer;
-}
-.close-btn:hover {
-  background: #454c56;
-}
-.close-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-.store-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 10px 18px 0;
-  border-bottom: 1px solid #30353d;
-}
-.tab {
-  border: none;
-  border-bottom: 2px solid transparent;
-  background: transparent;
-  color: #9da5b3;
-  padding: 8px 14px;
-  font-size: 14px;
-  cursor: pointer;
-}
-.tab:hover {
-  color: #d6dbe2;
-}
-.tab.active {
-  color: #ececec;
-  border-bottom-color: #2f6f9f;
 }
 .store-tools {
   display: grid;
@@ -813,10 +548,6 @@ function formatError(err: unknown): string {
 }
 
 @media (max-width: 720px) {
-  .store-backdrop {
-    align-items: stretch;
-    padding: 10px;
-  }
   .store-tools {
     grid-template-columns: 1fr;
   }
@@ -840,37 +571,6 @@ function formatError(err: unknown): string {
    全屏铺满 + 大幅压缩 header/tools/summary/pager,并把卡片维持在单行(横向 grid)
    再隐藏次要元信息(标签 / 最后使用),让列表区至少 5-6 行可见。 */
 @media (orientation: landscape) and (max-height: 540px) {
-  .store-backdrop {
-    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
-  }
-  .store-panel {
-    max-height: 100%;
-    width: 100%;
-    border-radius: 0;
-    border-left: none;
-    border-right: none;
-  }
-  .store-header {
-    padding: 6px 12px;
-  }
-  .store-header h2 {
-    font-size: 14px;
-  }
-  .store-header p {
-    display: none;
-  }
-  .close-btn {
-    width: 28px;
-    height: 28px;
-    font-size: 20px;
-  }
-  .store-tabs {
-    padding: 2px 12px 0;
-  }
-  .tab {
-    padding: 4px 10px;
-    font-size: 12px;
-  }
   .store-tools {
     padding: 6px 12px;
     gap: 6px;
@@ -933,5 +633,14 @@ function formatError(err: unknown): string {
     min-width: 56px;
     font-size: 12px;
   }
+}
+</style>
+
+<style scoped>
+.store-tools { grid-template-columns: minmax(140px, 1fr) repeat(2, minmax(120px, 160px)) auto; }
+.check { gap: 8px; white-space: nowrap; }
+@media (max-width: 720px) {
+  .store-tools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .search { grid-column: 1 / -1; }
 }
 </style>

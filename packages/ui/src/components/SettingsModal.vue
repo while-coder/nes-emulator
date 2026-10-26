@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import SModal from '@qingfeng346/ui-kit/components/SModal.vue'
+import SSwitch from '@qingfeng346/ui-kit/components/SSwitch.vue'
+import SButton from '@qingfeng346/ui-kit/components/button/SButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   PAD_BUTTON_LIST,
@@ -19,11 +22,28 @@ import {
 } from '../emulator/settings'
 import { navEnabled, useRemoteNav } from '../composables/useRemoteNav'
 import RemoteSelect from './RemoteSelect.vue'
+import RomStorePanel from './RomStorePanel.vue'
+import SaveStatePanel, { type LoadSavePayload } from './SaveStatePanel.vue'
 
 const open = defineModel<boolean>('open', { default: false })
 
-type Tab = 'keys' | 'display' | 'audio' | 'misc'
-const tab = ref<Tab>('keys')
+type Tab = 'library' | 'saves' | 'keys' | 'display' | 'audio' | 'misc'
+const tab = defineModel<Tab>('tab', { default: 'library' })
+defineProps<{ currentRomKey?: string | null }>()
+const emit = defineEmits<{
+  loadRom: [{ name: string; bytes: Uint8Array; key: string }]
+  loadSave: [LoadSavePayload]
+}>()
+const libraryPanel = ref<InstanceType<typeof RomStorePanel> | null>(null)
+const savePanel = ref<InstanceType<typeof SaveStatePanel> | null>(null)
+const busy = computed(() => libraryPanel.value?.busyKey != null || savePanel.value?.busyKey != null)
+const libraryOpen = computed({ get: () => open.value && tab.value === 'library', set: (v) => { if (!v) open.value = false } })
+const savesOpen = computed({ get: () => open.value && tab.value === 'saves', set: (v) => { if (!v) open.value = false } })
+
+watch(tab, () => {
+  capturing.value = null
+  stopCapturePad()
+})
 
 // 当前正在编辑的玩家(0=玩家1、1=玩家2)。
 const player = ref(0)
@@ -58,10 +78,12 @@ const speedOptions = SPEED_OPTIONS.map((s) => ({ value: s, label: `${s}×` }))
 const turboOptions = TURBO_HZ_OPTIONS.map((h) => ({ value: h, label: `${h} 次/秒` }))
 
 const TABS: { key: Tab; label: string }[] = [
+  { key: 'library', label: '游戏库' },
+  { key: 'saves', label: '存档' },
   { key: 'keys', label: '按键' },
   { key: 'display', label: '显示' },
   { key: 'audio', label: '音频' },
-  { key: 'misc', label: '杂项' },
+  { key: 'misc', label: '其他' },
 ]
 
 const ASPECTS: { value: Aspect; label: string }[] = [
@@ -173,6 +195,7 @@ function onOverlayKey(e: KeyboardEvent) {
 }
 
 function close() {
+  if (busy.value) return
   capturing.value = null
   stopCapturePad()
   open.value = false
@@ -201,6 +224,7 @@ const volumePct = computed({
 // 打开面板时刷新手柄列表(可能在打开前才插上)。
 watch(open, (v) => {
   if (v) refreshGamepads()
+  else { capturing.value = null; stopCapturePad() }
 })
 
 onMounted(() => {
@@ -218,43 +242,51 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div
-    v-if="open"
-    class="overlay"
-    tabindex="-1"
-    @click.self="close"
+  <SModal
+    v-model:show="open"
+    title="设置"
+    width="1040px"
+    fill-height
+    :closable="!busy"
+    :mask-closable="!busy"
+    class="player-modal settings-modal"
+    :close-on-esc="false"
+    :body-scrollable="false"
+    @close="close"
     @keydown="onOverlayKey"
   >
-    <div ref="panelRef" class="panel" role="dialog" aria-label="设置">
-      <header class="panel-head">
-        <h2>设置</h2>
-        <button class="x" @click="close">✕</button>
-      </header>
-
-      <nav class="tabs">
-        <button
+    <div ref="panelRef" class="settings-content">
+      <nav class="tabs" role="tablist" aria-label="设置分类">
+        <SButton
           v-for="t in TABS"
           :key="t.key"
           :class="['tab', { active: tab === t.key }]"
+          :id="`settings-tab-${t.key}`"
+          role="tab"
+          :aria-selected="tab === t.key"
+          :aria-controls="`settings-panel-${tab}`"
+          :disabled="busy"
           @click="tab = t.key"
         >
           {{ t.label }}
-        </button>
+        </SButton>
       </nav>
 
-      <section class="body">
+      <section :id="`settings-panel-${tab}`" class="body" :class="{ 'list-body': tab === 'library' || tab === 'saves' }" role="tabpanel" :aria-labelledby="`settings-tab-${tab}`">
+        <RomStorePanel v-if="tab === 'library'" ref="libraryPanel" v-model:open="libraryOpen" @load="emit('loadRom', $event)" />
+        <SaveStatePanel v-else-if="tab === 'saves'" ref="savePanel" v-model:open="savesOpen" :current-rom-key="currentRomKey" @load="emit('loadSave', $event)" />
         <!-- 按键 -->
-        <div v-if="tab === 'keys'" class="keys">
+        <div v-else-if="tab === 'keys'" class="keys">
           <!-- 玩家切换 -->
           <div class="player-switch">
-            <button
+            <SButton
               v-for="(label, pi) in PLAYER_LABELS"
               :key="pi"
               :class="['player-btn', { active: player === pi }]"
               @click="player = pi"
             >
               {{ label }}
-            </button>
+            </SButton>
           </div>
 
           <!-- 手柄分配:玩家选择使用哪个实体手柄;手柄映射按型号共享 -->
@@ -274,13 +306,13 @@ onBeforeUnmount(() => {
           </div>
           <div v-for="item in PAD_BUTTON_LIST" :key="item.btn" class="key-row">
             <span class="key-name">{{ item.label }}</span>
-            <button
+            <SButton
               :class="['key-bind', { capturing: capturing === item.btn }]"
               @click="startCapture(item.btn)"
             >
               {{ capturing === item.btn ? '按下任意键…' : codeLabel(currentPlayer.keymap[item.btn]) }}
-            </button>
-            <button
+            </SButton>
+            <SButton
               :class="['key-bind', { capturing: capturingPad === item.btn }]"
               :disabled="!currentPadId"
               @click="startCapturePad(item.btn)"
@@ -292,16 +324,16 @@ onBeforeUnmount(() => {
                     ? padLabel(currentPadmap[item.btn])
                     : '未选手柄'
               }}
-            </button>
+            </SButton>
           </div>
-          <button class="reset" @click="resetKeymap">恢复默认按键</button>
+          <SButton class="reset" @click="resetKeymap">恢复默认按键</SButton>
         </div>
 
         <!-- 显示 -->
         <div v-else-if="tab === 'display'" class="form">
           <label class="row">
             <span>画面平滑</span>
-            <input v-model="settings.display.smoothing" type="checkbox" />
+            <SSwitch v-model:value="settings.display.smoothing" />
           </label>
           <label class="row">
             <span>宽高比</span>
@@ -309,11 +341,11 @@ onBeforeUnmount(() => {
           </label>
           <label class="row">
             <span>整数倍缩放</span>
-            <input v-model="settings.display.integerScale" type="checkbox" />
+            <SSwitch v-model:value="settings.display.integerScale" />
           </label>
           <label class="row">
             <span>扫描线(CRT)</span>
-            <input v-model="settings.display.scanlines" type="checkbox" />
+            <SSwitch v-model:value="settings.display.scanlines" />
           </label>
           <label class="row">
             <span>背景色</span>
@@ -345,56 +377,20 @@ onBeforeUnmount(() => {
           </label>
           <label class="row">
             <span>显示按下的按键<br /><small class="hint-text">调试用,状态栏实时显示键盘/手柄/遥控按键</small></span>
-            <input v-model="settings.misc.showInputDebug" type="checkbox" />
+            <SSwitch v-model:value="settings.misc.showInputDebug" />
           </label>
-          <button class="reset" @click="resetSettings">恢复全部默认设置</button>
+          <SButton class="reset" @click="resetSettings">恢复全部默认设置</SButton>
         </div>
       </section>
     </div>
-  </div>
+  </SModal>
 </template>
 
 <style scoped>
-.overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-}
-.panel {
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  max-height: calc(100vh - 64px);
+.settings-content {
   display: flex;
   flex-direction: column;
-  background: #2a2a2a;
-  border: 1px solid #3a3a3a;
-  border-radius: 10px;
-  overflow: hidden;
-}
-.panel-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid #3a3a3a;
-}
-.panel-head h2 {
-  margin: 0;
-  font-size: 16px;
-}
-.x {
-  border: none;
-  background: transparent;
-  color: #aaa;
-  font-size: 16px;
-  cursor: pointer;
-}
-.x:hover {
-  color: #fff;
+  min-height: 0;
 }
 .tabs {
   display: flex;
@@ -521,4 +517,26 @@ onBeforeUnmount(() => {
 .reset:hover {
   background: #444;
 }
+</style>
+
+<style scoped>
+.settings-content { flex: 1; overflow: hidden; }
+.tabs { flex-shrink: 0; flex-wrap: wrap; padding: 8px 12px; border-bottom: 1px solid #3a3a3a; }
+.tab { min-height: 44px; border-radius: 6px; }
+.tab:focus-visible { outline: 2px solid #4ea1ff; outline-offset: -2px; }
+.body { flex: 1; min-height: 0; }
+.body.list-body { display: flex; overflow: hidden; padding: 0; }
+.keys, .form { max-width: 640px; margin: 0 auto; }
+@media (max-width: 480px) {
+  .tabs { gap: 2px; padding: 4px; }
+  .tab { flex: 1; padding: 6px; font-size: 13px; }
+  .key-head, .key-row { grid-template-columns: minmax(0, 1fr) repeat(2, minmax(0, 100px)); gap: 4px; }
+  .key-bind { padding: 6px 4px; }
+  .pad-assign .remote-select { min-width: 0; max-width: 65%; }
+}
+</style>
+
+<style>
+.settings-modal .s-modal-body { flex: 1; }
+.settings-modal .s-modal-header { flex-shrink: 0; }
 </style>
